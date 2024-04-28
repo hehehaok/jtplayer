@@ -83,8 +83,8 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
             break;
         }
         if (m_audioFrameQueue.size >= m_maxFrameQueueSize) {
+            qDebug() << "audio frame queue size is" << m_audioFrameQueue.size << ", audio decode useless loop!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            qDebug() << "audio frame queue is full, audio decode useless loop!\n";
             continue;
         }
         bool ret = m_demux->getPacket(&m_demux->m_audioPacketQueue, packet, &m_audioPktDecoder);
@@ -115,6 +115,7 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
             }
         }
         else {
+            qDebug() << "get audio packet failed!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
@@ -132,8 +133,8 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
             break;
         }
         if (m_videoFrameQueue.size >= m_maxFrameQueueSize) {
+            qDebug() << "video frame queue size is" << m_videoFrameQueue.size << ", video decode useless loop!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            qDebug() << "video frame queue is full, video decode useless loop!\n";
             continue;
         }
         bool ret = m_demux->getPacket(&m_demux->m_videoPacketQueue, packet, &m_videoPktDecoder);
@@ -150,7 +151,7 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
                 qDebug() << "receive video frame failed : " << m_errorBuffer << "\n";
                 continue;
             }
-            if (frame == nullptr || frame->format != 0) {
+            if (frame == nullptr || frame->format == -1) {
                 qDebug() << "decode video frame failed!\n";
                 continue;
             }
@@ -159,6 +160,7 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
             }
         }
         else {
+            qDebug() << "get video packet failed!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }

@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[])
 {
-    QString url = "../Forrest_Gump_IMAX.mp4";
+    QString url = "../clock.avi";
     testPlayer(url);
     return 0;
     //    QApplication a(argc, argv);

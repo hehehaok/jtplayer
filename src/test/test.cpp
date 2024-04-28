@@ -39,7 +39,7 @@ void testPlayer(QString url) {
     jtPlayer::get()->play();
     int i = 2;
     while (i--) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     jtPlayer::get()->m_jtdemux->m_exit = true;
     jtPlayer::get()->m_jtdecoder->m_exit = true;

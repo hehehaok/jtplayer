@@ -22,10 +22,11 @@ void JTDemux::demux(std::shared_ptr<void> param)
         if (m_exit) {
             break;
         }
-        if (m_audioPacketQueue.size >= m_maxPacketQueueSize || m_videoPacketQueue.size >= m_maxPacketQueueSize)
+        if (getPacketQueueSize(&m_audioPacketQueue) >= m_maxPacketQueueSize || getPacketQueueSize(&m_videoPacketQueue) >= m_maxPacketQueueSize)
         {
+            qDebug() << "audio packet queue size is" << getPacketQueueSize(&m_audioPacketQueue) << ","
+                     << "video packet queue size is" << getPacketQueueSize(&m_videoPacketQueue) << ", demux useless loop!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            qDebug() << "packet queue is full, demux useless loop!\n";
             continue;
         }
 //        if (m_isSeek)
@@ -33,14 +34,15 @@ void JTDemux::demux(std::shared_ptr<void> param)
         ret = av_read_frame(m_fmtCtx, avpkt);
         if (ret != 0) {
             av_strerror(ret, m_errorBuffer, sizeof(m_errorBuffer));
-            qDebug() << "read frame failed : " << m_errorBuffer << "\n";
+            qDebug() << "demux packet failed:" << m_errorBuffer << "\n";
+            continue;
         }
         if (avpkt->stream_index == m_videoIndex) {
-            qDebug() << "demux vedio packet pts : " << avpkt->pts * av_q2d(m_fmtCtx->streams[m_videoIndex]->time_base) << "\n";
+            qDebug() << "demux vedio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_videoIndex]->time_base) << "\n";
             pushPacket(&m_videoPacketQueue, avpkt);
         }
         else if (avpkt->stream_index == m_audioIndex) {
-            qDebug() << "demux audio packet pts : " << avpkt->pts * av_q2d(m_fmtCtx->streams[m_videoIndex]->time_base) << "\n";
+            qDebug() << "demux audio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_audioIndex]->time_base) << "\n";
             pushPacket(&m_audioPacketQueue, avpkt);
         }
         else {
@@ -87,6 +89,12 @@ void JTDemux::exit()
     qDebug() << "demux exit!\n";
 }
 
+int JTDemux::getPacketQueueSize(PacketQueue *queue)
+{
+    std::unique_lock<std::mutex> lock(queue->mutex);
+    return queue->size;
+}
+
 bool JTDemux::getPacket(PacketQueue *queue, AVPacket *pkt, PktDecoder *decoder)
 {
     std::unique_lock<std::mutex> lock(queue->mutex);
@@ -94,7 +102,10 @@ bool JTDemux::getPacket(PacketQueue *queue, AVPacket *pkt, PktDecoder *decoder)
         bool ret = queue->cond.wait_for(lock, std::chrono::microseconds(100),
                                         [&] {return queue->size & !m_exit;});
         if (!ret) {
-            qDebug() << "getPacket failed!\n";
+            if (decoder->codecCtx->codec_type == AVMEDIA_TYPE_VIDEO)
+                qDebug() << "video packet queue size is" << queue->size << ", get packet failed!\n";
+            else if (decoder->codecCtx->codec_type == AVMEDIA_TYPE_AUDIO)
+                qDebug() << "audio packet queue size is" << queue->size << ", get packet failed!\n";
             return false;
         }
     }

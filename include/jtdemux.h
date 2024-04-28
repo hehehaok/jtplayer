@@ -24,6 +24,7 @@ public:
 public:
     void demuxInit();
     void exit();
+    int getPacketQueueSize(PacketQueue* queue);
     bool getPacket(PacketQueue* queue, AVPacket* pkt, PktDecoder* decoder);
     void pushPacket(PacketQueue* queue, AVPacket* pkt);
     void packetQueueFlush(PacketQueue* queue);
