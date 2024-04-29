@@ -21,12 +21,17 @@ public:
         setClockAt(pts);
     }
 
-    // 获取当前标准时钟的时间戳（比如以音频为基准的话得到的就是当前音频的时间戳）
-    inline double getClock() {
+    static inline long long getCurTimeStamp() {
         auto now = std::chrono::system_clock::now();
         auto cur_time_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+        return cur_time_us;
+    }
 
-        qDebug() << "cur pts is " << m_drift + cur_time_us / 1000000.0 << "\n";
+    // 获取当前标准时钟的时间戳（比如以音频为基准的话得到的就是当前音频的时间戳）
+    inline double getClock() {
+        auto cur_time_us = getCurTimeStamp();
+
+//        qDebug() << "cur pts is" << m_drift + cur_time_us / 1000000.0 << "\n";
         return m_drift + cur_time_us / 1000000.0;
     }
 
@@ -34,8 +39,7 @@ public:
 private:
     // 设置时间戳
     inline void setClockAt(double pts) {
-        auto now = std::chrono::system_clock::now();
-        auto cur_time_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+        auto cur_time_us = getCurTimeStamp();
 
         m_drift = pts - cur_time_us / 1000000.0;
         m_pts = pts;

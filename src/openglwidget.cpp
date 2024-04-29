@@ -204,7 +204,7 @@ void OpenGLWidget::onShowYUV(std::shared_ptr<YUV420Frame> frame)
         return;
     }
     m_frame = frame; // 直接赋值给 m_frame，旧的 m_frame 会在此时自动释放
-//    qDebug() << "receive success!!!! " << m_frame->getBufferU() << m_frame->getBufferV() << m_frame->getBufferY();
+    qDebug() << "receive success!!!! " << m_frame->getBufferU() << m_frame->getBufferV() << m_frame->getBufferY();
     update();
 }
 

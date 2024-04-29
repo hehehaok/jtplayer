@@ -7,6 +7,7 @@
 #include "jtplayer.h"
 #include "jtdemux.h"
 #include "jtdecoder.h"
+#include "jtoutput.h"
 
 #include <thread>
 #include <chrono>

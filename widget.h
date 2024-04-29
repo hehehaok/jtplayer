@@ -14,8 +14,12 @@ class Widget : public QWidget
 public:
     Widget(QWidget *parent = nullptr);
     ~Widget();
+    void init();
 
 private:
     Ui::Widget *ui;
+
+protected:
+    virtual void paintEvent(QPaintEvent *event) override;
 };
 #endif // WIDGET_H

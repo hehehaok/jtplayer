@@ -9,8 +9,9 @@
 
 class JTDemux;
 class JTDecoder;
+class JTOutput;
 
-// 播放器类：所有的播放器行为
+// 播放器类（单例）：播放器所有的行为以及对外接口
 class jtPlayer : public QObject
 {
     Q_OBJECT
@@ -28,13 +29,14 @@ public:
 
     // 音频相关
     AVCodecContext *Acodecctx;       // 音频解码上下文
-    AVCodec *Acodec;                 // 视频解码器
+    AVCodec *Acodec;                 // 音频解码器
     SwrContext *Aswrctx;             // 音频采样转换上下文
-    int Astreamindex;                // 视频流索引
+    int Astreamindex;                // 音频流索引
 
-    // 解复用和解码模块
+    // 组成播放器的各个模块
     std::shared_ptr<JTDemux> m_jtdemux;
     std::shared_ptr<JTDecoder> m_jtdecoder;
+    std::shared_ptr<JTOutput> m_jtoutput;
 
 public:
     static jtPlayer* get();

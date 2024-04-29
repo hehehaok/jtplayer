@@ -1,6 +1,7 @@
 #include "jtplayer.h"
 #include "jtdemux.h"
 #include "jtdecoder.h"
+#include "jtoutput.h"
 #include "threadpool.h"
 
 jtPlayer::jtPlayer(QObject *parent) : QObject(parent)
@@ -53,6 +54,7 @@ void jtPlayer::play()
     ThreadPool::addTask(std::bind(&JTDemux::demux, m_jtdemux, std::placeholders::_1), std::make_shared<int>(1));
     ThreadPool::addTask(std::bind(&JTDecoder::audioDecoder, m_jtdecoder, std::placeholders::_1), std::make_shared<int>(2));
     ThreadPool::addTask(std::bind(&JTDecoder::videoDecoder, m_jtdecoder, std::placeholders::_1), std::make_shared<int>(3));
+    ThreadPool::addTask(std::bind(&JTOutput::videoCallBack, m_jtoutput, std::placeholders::_1), std::make_shared<int>(4));
 }
 
 bool jtPlayer::playerInit()
@@ -200,9 +202,14 @@ bool jtPlayer::setModule()
         qDebug() << "demux module init failed!\n";
         return false;
     }
-    m_jtdecoder = std::make_shared<JTDecoder>(m_jtdemux);
+    m_jtdecoder = std::make_shared<JTDecoder>();
     if (m_jtdecoder == nullptr) {
         qDebug() << "decoder module init failed!\n";
+        return false;
+    }
+    m_jtoutput = std::make_shared<JTOutput>();
+    if (m_jtoutput == nullptr) {
+        qDebug() << "output module init failed!\n";
         return false;
     }
     return true;

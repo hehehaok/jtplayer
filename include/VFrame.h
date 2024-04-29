@@ -43,7 +43,7 @@ private:
         m_pixelH = pixelH;
         int sizeY = pixelW * pixelH;
         int sizeUV = sizeY >> 2;
-        if (buffer == nullptr) {
+        if (m_buffer == nullptr) {
             m_buffer = (uint8_t*)malloc(sizeY + sizeUV * 2);
         }
         if (m_buffer) {
