@@ -3,6 +3,7 @@
 #include "jtdecoder.h"
 #include "jtoutput.h"
 #include "threadpool.h"
+#include "SDL2/SDL.h"
 
 jtPlayer::jtPlayer(QObject *parent) : QObject(parent)
 {
@@ -55,6 +56,7 @@ void jtPlayer::play()
     ThreadPool::addTask(std::bind(&JTDecoder::audioDecoder, m_jtdecoder, std::placeholders::_1), std::make_shared<int>(2));
     ThreadPool::addTask(std::bind(&JTDecoder::videoDecoder, m_jtdecoder, std::placeholders::_1), std::make_shared<int>(3));
     ThreadPool::addTask(std::bind(&JTOutput::videoCallBack, m_jtoutput, std::placeholders::_1), std::make_shared<int>(4));
+    SDL_PauseAudio(0);
 }
 
 bool jtPlayer::playerInit()

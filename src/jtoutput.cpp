@@ -1,3 +1,4 @@
+#include "SDL2/SDL.h"
 #include "jtoutput.h"
 #include "jtplayer.h"
 #include "jtdecoder.h"
@@ -24,7 +25,14 @@
 
 
 
-JTOutput::JTOutput(QObject *parent) : QObject(parent)
+JTOutput::JTOutput(QObject *parent) : QObject(parent),
+          m_jtdecoder(jtPlayer::get()->m_jtdecoder),
+          m_clockInitFlag(false),
+          m_frameTimer(0.00),
+          m_exit(false),
+          m_pause(false),
+          m_speed(1.0),
+          m_volume(30)
 {
     outputInit();
 }
@@ -38,12 +46,13 @@ JTOutput::~JTOutput()
 
 bool JTOutput::outputInit()
 {
-    m_jtdecoder = jtPlayer::get()->m_jtdecoder;
-    m_clockInitFlag = false;
-    m_exit = false;
-    m_pause = false;
+    m_errorBuffer[1023] = '\0';
     if(!initVideo()) {
         qDebug() << "init video failed!\n";
+        return false;
+    }
+    if(!initAudio()) {
+        qDebug() << "init audio failed!\n";
         return false;
     }
     return true;
@@ -57,8 +66,6 @@ void JTOutput::exit()
 
 bool JTOutput::initVideo()
 {
-    m_frameTimer = 0.00;
-
     m_videoIndex = jtPlayer::get()->Vstreamindex;
     m_videoFrameTimeBase = jtPlayer::get()->avformtctx->streams[m_videoIndex]->time_base;
     m_videoCodecPar = jtPlayer::get()->avformtctx->streams[m_videoIndex]->codecpar;
@@ -221,7 +228,130 @@ double JTOutput::computeTargetDelay(double delay)
 
 bool JTOutput::initAudio()
 {
+    int ret = SDL_Init(SDL_INIT_AUDIO);
+    if (ret < 0) {
+        qDebug() << "SDL_Init failed:" << SDL_GetError();
+        return false;
+    }
 
+    m_audioIndex = jtPlayer::get()->Astreamindex;
+    m_audioFrameTimeBase = jtPlayer::get()->avformtctx->streams[m_audioIndex]->time_base;
+    m_audioCodecPar = jtPlayer::get()->avformtctx->streams[m_audioIndex]->codecpar;
+
+    m_audioBuffer = NULL;
+    m_audioBufferSize = 0;
+    m_audioBufferIndex = 0;
+    m_lastAudioPts = -1;
+
+    SDL_AudioSpec wantedSpec;
+    wantedSpec.channels = m_audioCodecPar->channels;
+    wantedSpec.freq = m_audioCodecPar->sample_rate * m_speed;
+    wantedSpec.format = AUDIO_S16SYS;
+    wantedSpec.silence = 0; // 表示静音值，当设备暂停时会往设备中写入静音值
+    wantedSpec.callback = audioCallBack;
+    wantedSpec.userdata = this;
+    wantedSpec.samples = FFMAX(512, 2 << av_log2(wantedSpec.freq / 30));
+    SDL_AudioSpec actualSpec;
+
+    ret = SDL_OpenAudio(&wantedSpec, &actualSpec);
+    if (ret < 0) {
+        qDebug() << "SDL_OpenAudio failed:" << SDL_GetError();
+        return false;
+    }
+
+    m_dstSampleFmt = AV_SAMPLE_FMT_S16;
+    m_dstChannels = actualSpec.channels;
+    m_dstFreq = actualSpec.freq;
+    m_dstChannelLayout = av_get_default_channel_layout(actualSpec.channels);
+    m_dstNbSamples = av_samples_get_buffer_size(NULL, actualSpec.channels,
+                                                1, m_dstSampleFmt, 1);
+
+    m_audioFrame = av_frame_alloc();
+    return true;
+}
+
+void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
+{
+    memset(stream, 0, len);
+    JTOutput* jtoutput = (JTOutput*) userData;
+    double audioPts = 0.00;
+    while (len > 0) {
+        if (jtoutput->m_exit) {
+            return;
+        }
+        if (jtoutput->m_audioBufferIndex >= jtoutput->m_audioBufferSize) { // 1帧数据读完了已经，重新拿一帧
+            bool ret = jtoutput->m_jtdecoder->getAFrame(jtoutput->m_audioFrame);
+            if (ret) {
+                jtoutput->m_audioBufferIndex = 0;
+                if ((jtoutput->m_dstSampleFmt != jtoutput->m_audioFrame->format ||
+                     jtoutput->m_dstChannelLayout != jtoutput->m_audioFrame->channel_layout ||
+                     jtoutput->m_dstFreq != jtoutput->m_audioFrame->sample_rate ||
+                     jtoutput->m_dstNbSamples != jtoutput->m_audioFrame->nb_samples) &&
+                     jtoutput->m_swrCtx == NULL) {
+                    jtoutput->m_swrCtx = swr_alloc_set_opts(NULL, jtoutput->m_dstChannelLayout, jtoutput->m_dstSampleFmt, jtoutput->m_dstFreq,
+                                                            jtoutput->m_audioFrame->channel_layout, (enum AVSampleFormat)jtoutput->m_audioFrame->format,
+                                                            jtoutput->m_audioFrame->sample_rate, 0, NULL);
+                    if (jtoutput->m_swrCtx == NULL || swr_init(jtoutput->m_swrCtx) < 0) {
+                        qDebug() << "swr context init failed!\n";
+                        return;
+                    }
+                }
+                if (jtoutput->m_swrCtx) { // 先进行数据格式转换
+                    const uint8_t **in = (const uint8_t **)jtoutput->m_audioFrame->extended_data;
+                    qDebug() << "data:" << jtoutput->m_audioFrame->data << ",extended_data:" << jtoutput->m_audioFrame->extended_data;
+                    // extended_data就是比如当音频存在8个通道且格式为planar时，由于data只有4个通道，因此放不下要放在extended_data中
+                    int outCount = (uint64_t)jtoutput->m_audioFrame->nb_samples * jtoutput->m_dstFreq / jtoutput->m_audioFrame->sample_rate + 256;
+                    int outSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, jtoutput->m_audioFrame->nb_samples,
+                                                              jtoutput->m_dstSampleFmt, 1);
+                    if (outSize < 0) {
+                        qDebug() << "swr av_samples_get_buffer_size failed!\n";
+                        return;
+                    }
+                    av_fast_malloc(&jtoutput->m_audioBuffer, &jtoutput->m_audioBufferSize, outSize);
+                    if (jtoutput->m_audioBuffer == NULL)
+                    {
+                        qDebug() << "swr av_fast_malloc failed!\n";
+                        return;
+                    }
+                    int len2 = swr_convert(jtoutput->m_swrCtx, &jtoutput->m_audioBuffer, outCount, in, jtoutput->m_audioFrame->nb_samples);
+                    if (len2 < 0) {
+                        qDebug() << "swr convert failed!\n";
+                        return;
+                    }
+                    jtoutput->m_audioBufferSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, len2,
+                                                                             jtoutput->m_dstSampleFmt, 0);
+                }
+                else { // 这个分支表示的是前后格式一样，因此不需要转换
+                    jtoutput->m_audioBufferSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, jtoutput->m_dstNbSamples,
+                                                                             jtoutput->m_dstSampleFmt, 0);
+                    av_fast_malloc(&jtoutput->m_audioBuffer, &jtoutput->m_audioBufferSize, jtoutput->m_audioBufferSize + 256);
+                    if (jtoutput->m_audioBuffer == NULL) {
+                        qDebug() << "av_fast_malloc failed!\n";
+                        return;
+                    }
+                    memcpy(jtoutput->m_audioBuffer, jtoutput->m_audioFrame->data[0], jtoutput->m_audioBufferSize);
+                }
+                audioPts = jtoutput->m_audioFrame->pts * av_q2d(jtoutput->m_audioFrameTimeBase);
+                av_frame_unref(jtoutput->m_audioFrame);
+            }
+            else {
+                qDebug() << "get audio frame failed!\n";
+                continue;
+            }
+        }
+        int len1 = jtoutput->m_audioBufferSize - jtoutput->m_audioBufferIndex; // 数据还没读完
+        len1 = (len1 > len ? len : len1);
+        SDL_MixAudio(stream, jtoutput->m_audioBuffer + jtoutput->m_audioBufferIndex, len1, jtoutput->m_volume);
+        len -= len1;
+        jtoutput->m_audioBufferIndex += len1;
+        stream += len1;
+    }
+    jtoutput->m_audioClock.setClock(audioPts);
+    uint32_t _pts = (uint32_t)audioPts;
+    if (jtoutput->m_lastAudioPts != _pts) {
+        emit jtoutput->AVPtsChanged(_pts);
+        jtoutput->m_lastAudioPts = _pts;
+    }
 }
 
 

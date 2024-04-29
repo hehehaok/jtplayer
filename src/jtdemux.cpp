@@ -41,10 +41,10 @@ void JTDemux::demux(std::shared_ptr<void> param)
             qDebug() << "demux vedio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_videoIndex]->time_base) << "\n";
             pushPacket(&m_videoPacketQueue, avpkt);
         }
-//        else if (avpkt->stream_index == m_audioIndex) {
-//            qDebug() << "demux audio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_audioIndex]->time_base) << "\n";
-//            pushPacket(&m_audioPacketQueue, avpkt);
-//        }
+        else if (avpkt->stream_index == m_audioIndex) {
+            qDebug() << "demux audio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_audioIndex]->time_base) << "\n";
+            pushPacket(&m_audioPacketQueue, avpkt);
+        }
         else {
             qDebug() << "demux useless packet!\n";
             av_packet_unref(avpkt);

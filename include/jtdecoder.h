@@ -34,11 +34,12 @@ public:
     void pushAFrame(AVFrame *frame);
     void pushVFrame(AVFrame *frame);
     void frameQueueFlush(FrameQueue *queue);
-    int getRemainingVFrame();    // 查看剩余视频帧
-    MyFrame* peekLastVFrame();   // 查看上一视频帧
-    MyFrame* peekCurVFrame();    // 查看当前视频帧
-    MyFrame* peekNextVFrame();   // 查看下一视频帧
-    void setNextVFrame();        // 将读索引后移一位
+    int getRemainingVFrame();       // 查看剩余视频帧
+    MyFrame* peekLastVFrame();      // 查看上一视频帧
+    MyFrame* peekCurVFrame();       // 查看当前视频帧
+    MyFrame* peekNextVFrame();      // 查看下一视频帧
+    void setNextVFrame();           // 将读索引后移一位
+    bool getAFrame(AVFrame *frame); // 读取音频帧
 };
 
 #endif // JTDECODER_H

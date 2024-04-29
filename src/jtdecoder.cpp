@@ -150,6 +150,34 @@ void JTDecoder::setNextVFrame()
     m_videoFrameQueue.size--;
 }
 
+bool JTDecoder::getAFrame(AVFrame *frame)
+{
+    if (frame == nullptr) {
+        qDebug() << "the frame is nullptr, get audio frame failed!\n";
+        return false;
+    }
+    std::unique_lock<std::mutex> lock(m_audioFrameQueue.mutex);
+    while (m_audioFrameQueue.size == 0) {
+        bool ret = m_audioFrameQueue.cond.wait_for(lock, std::chrono::milliseconds(100), [&]
+                                                {return m_audioFrameQueue.size && !m_exit; });
+        if (!ret) {
+            return false;
+        }
+    }
+    if (m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].serial != m_jtdemux->m_audioPacketQueue.serial)
+    {
+        av_frame_unref(&m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].frame);
+        m_audioFrameQueue.readIndex = (m_audioFrameQueue.readIndex + 1) % m_maxFrameQueueSize;
+        m_audioFrameQueue.size--;
+        qDebug() << "the frame serial changed, get audio frame failed!\n";
+        return false;
+    }
+    av_frame_ref(frame, &m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].frame);
+    m_audioFrameQueue.readIndex = (m_audioFrameQueue.readIndex + 1) % m_maxFrameQueueSize;
+    m_audioFrameQueue.size--;
+    return true;
+}
+
 void JTDecoder::audioDecoder(std::shared_ptr<void> param)
 {
     AVPacket *packet = av_packet_alloc();
