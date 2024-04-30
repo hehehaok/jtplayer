@@ -172,7 +172,7 @@ bool JTDecoder::getAFrame(AVFrame *frame)
         qDebug() << "the frame serial changed, get audio frame failed!\n";
         return false;
     }
-    av_frame_ref(frame, &m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].frame);
+    av_frame_move_ref(frame, &m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].frame);
     m_audioFrameQueue.readIndex = (m_audioFrameQueue.readIndex + 1) % m_maxFrameQueueSize;
     m_audioFrameQueue.size--;
     return true;

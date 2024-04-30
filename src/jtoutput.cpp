@@ -3,7 +3,7 @@
 #include "jtplayer.h"
 #include "jtdecoder.h"
 #include "jtdemux.h"
-#include "vframe.h"
+#include "VFrame.h"
 #include <thread>
 #include <chrono>
 
@@ -237,11 +237,13 @@ bool JTOutput::initAudio()
     m_audioIndex = jtPlayer::get()->Astreamindex;
     m_audioFrameTimeBase = jtPlayer::get()->avformtctx->streams[m_audioIndex]->time_base;
     m_audioCodecPar = jtPlayer::get()->avformtctx->streams[m_audioIndex]->codecpar;
+    m_swrCtx = NULL;
 
     m_audioBuffer = NULL;
     m_audioBufferSize = 0;
     m_audioBufferIndex = 0;
     m_lastAudioPts = -1;
+
 
     SDL_AudioSpec wantedSpec;
     wantedSpec.channels = m_audioCodecPar->channels;
@@ -260,12 +262,15 @@ bool JTOutput::initAudio()
     }
 
     m_dstSampleFmt = AV_SAMPLE_FMT_S16;
+    if(av_sample_fmt_is_planar(m_dstSampleFmt)) {
+        qDebug() << "planar!The data size is" << av_get_bytes_per_sample(m_dstSampleFmt);
+    }
+    else {
+        qDebug() << "packet!The data size is" << av_get_bytes_per_sample(m_dstSampleFmt);
+    }
     m_dstChannels = actualSpec.channels;
     m_dstFreq = actualSpec.freq;
     m_dstChannelLayout = av_get_default_channel_layout(actualSpec.channels);
-    m_dstNbSamples = av_samples_get_buffer_size(NULL, actualSpec.channels,
-                                                1, m_dstSampleFmt, 1);
-
     m_audioFrame = av_frame_alloc();
     return true;
 }
@@ -285,8 +290,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
                 jtoutput->m_audioBufferIndex = 0;
                 if ((jtoutput->m_dstSampleFmt != jtoutput->m_audioFrame->format ||
                      jtoutput->m_dstChannelLayout != jtoutput->m_audioFrame->channel_layout ||
-                     jtoutput->m_dstFreq != jtoutput->m_audioFrame->sample_rate ||
-                     jtoutput->m_dstNbSamples != jtoutput->m_audioFrame->nb_samples) &&
+                     jtoutput->m_dstFreq != jtoutput->m_audioFrame->sample_rate) &&
                      jtoutput->m_swrCtx == NULL) {
                     jtoutput->m_swrCtx = swr_alloc_set_opts(NULL, jtoutput->m_dstChannelLayout, jtoutput->m_dstSampleFmt, jtoutput->m_dstFreq,
                                                             jtoutput->m_audioFrame->channel_layout, (enum AVSampleFormat)jtoutput->m_audioFrame->format,
@@ -298,11 +302,12 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
                 }
                 if (jtoutput->m_swrCtx) { // 先进行数据格式转换
                     const uint8_t **in = (const uint8_t **)jtoutput->m_audioFrame->extended_data;
-                    qDebug() << "data:" << jtoutput->m_audioFrame->data << ",extended_data:" << jtoutput->m_audioFrame->extended_data;
-                    // extended_data就是比如当音频存在8个通道且格式为planar时，由于data只有4个通道，因此放不下要放在extended_data中
-                    int outCount = (uint64_t)jtoutput->m_audioFrame->nb_samples * jtoutput->m_dstFreq / jtoutput->m_audioFrame->sample_rate + 256;
-                    int outSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, jtoutput->m_audioFrame->nb_samples,
-                                                              jtoutput->m_dstSampleFmt, 1);
+                    // qDebug() << "data:" << jtoutput->m_audioFrame->data << ",extended_data:" << jtoutput->m_audioFrame->extended_data;
+                    // extended_data就是比如当音频存在9个通道且格式为planar时，由于data只有8个通道，因此放不下要放在extended_data中
+                    int estDstNbSamples = (uint64_t)jtoutput->m_audioFrame->nb_samples * jtoutput->m_dstFreq / jtoutput->m_audioFrame->sample_rate + 256;
+                    // 估计重采样后一帧内单个通道的采样点数，一般把这个值估计的稍微大一点，反正最后实际的大小会由swr_convert返回值得到
+                    int outSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, estDstNbSamples, jtoutput->m_dstSampleFmt, 0);
+                    // 根据采样点数、量化比特位数、通道数即可计算出需要的缓冲区字节数
                     if (outSize < 0) {
                         qDebug() << "swr av_samples_get_buffer_size failed!\n";
                         return;
@@ -313,23 +318,20 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
                         qDebug() << "swr av_fast_malloc failed!\n";
                         return;
                     }
-                    int len2 = swr_convert(jtoutput->m_swrCtx, &jtoutput->m_audioBuffer, outCount, in, jtoutput->m_audioFrame->nb_samples);
-                    if (len2 < 0) {
+                    int actualDstNbSamples = swr_convert(jtoutput->m_swrCtx, &jtoutput->m_audioBuffer, estDstNbSamples, in, jtoutput->m_audioFrame->nb_samples);
+                    if (actualDstNbSamples < 0) {
                         qDebug() << "swr convert failed!\n";
                         return;
                     }
-                    jtoutput->m_audioBufferSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, len2,
-                                                                             jtoutput->m_dstSampleFmt, 0);
+                    jtoutput->m_audioBufferSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, actualDstNbSamples,
+                                                                             jtoutput->m_dstSampleFmt, 1);
                 }
                 else { // 这个分支表示的是前后格式一样，因此不需要转换
-                    jtoutput->m_audioBufferSize = av_samples_get_buffer_size(NULL, jtoutput->m_dstChannels, jtoutput->m_dstNbSamples,
-                                                                             jtoutput->m_dstSampleFmt, 0);
-                    av_fast_malloc(&jtoutput->m_audioBuffer, &jtoutput->m_audioBufferSize, jtoutput->m_audioBufferSize + 256);
-                    if (jtoutput->m_audioBuffer == NULL) {
-                        qDebug() << "av_fast_malloc failed!\n";
-                        return;
-                    }
-                    memcpy(jtoutput->m_audioBuffer, jtoutput->m_audioFrame->data[0], jtoutput->m_audioBufferSize);
+                    // 由于不需要转换因此直接按照Frame设置对应缓冲区大小即可
+                    // 注意这里不能选择内存对齐，选择内存对齐的话会把padding的数据也被读进去，这样就会有噪声
+                    jtoutput->m_audioBufferSize = av_samples_get_buffer_size(NULL, jtoutput->m_audioFrame->channels, jtoutput->m_audioFrame->nb_samples,
+                                                                             (enum AVSampleFormat)jtoutput->m_audioFrame->format, 1);
+                    jtoutput->m_audioBuffer = jtoutput->m_audioFrame->data[0];
                 }
                 audioPts = jtoutput->m_audioFrame->pts * av_q2d(jtoutput->m_audioFrameTimeBase);
                 av_frame_unref(jtoutput->m_audioFrame);
@@ -345,6 +347,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
         len -= len1;
         jtoutput->m_audioBufferIndex += len1;
         stream += len1;
+        // 需要注意一下 len的单位是字节,len1的单位也是字节,m_audioBufferIndex的单位也是字节
     }
     jtoutput->m_audioClock.setClock(audioPts);
     uint32_t _pts = (uint32_t)audioPts;

@@ -27,7 +27,8 @@ Widget::~Widget()
 void Widget::init()
 {
     qRegisterMetaType<std::shared_ptr<YUV420Frame>>("std::shared_ptr<YUV420Frame>");
-    QString url = "../Forrest_Gump_IMAX.mp4";
+//    QString url = "../clock.avi";
+    QString url = "../4.mp4";
     jtPlayer::get()->processInput(url);
     connect(jtPlayer::get()->m_jtoutput.get(), JTOutput::frameChanged,
             ui->opengl_widget, OpenGLWidget::onShowYUV, Qt::QueuedConnection);

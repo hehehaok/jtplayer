@@ -50,14 +50,13 @@ public:
     AVCodecParameters* m_audioCodecPar;  // 音频编码参数
     SwrContext *m_swrCtx;                // 音频重采样上下文
     uint8_t *m_audioBuffer;              // 音频缓冲区
-    uint32_t m_audioBufferSize;          // 音频缓冲区大小
-    uint32_t m_audioBufferIndex;         // 音频缓存索引
+    uint32_t m_audioBufferSize;          // 音频缓冲区大小/字节
+    uint32_t m_audioBufferIndex;         // 音频缓存读索引/字节
     uint32_t m_lastAudioPts;             //
     enum AVSampleFormat m_dstSampleFmt;  // 目标音频格式
     int m_dstChannels;                   // 目标通道数
     int m_dstFreq;                       // 目标采样率
     int m_dstChannelLayout;              // 目标通道布局
-    int m_dstNbSamples;                  // 目标采样点数
 
     AVFrame* m_audioFrame;               // 音频帧实例，用于接收来自帧队列的帧
 
