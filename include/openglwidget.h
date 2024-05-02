@@ -8,9 +8,8 @@
 #include <memory>
 
 class YUV420Frame;
-
-QT_FORWARD_DECLARE_CLASS(QOpenGLShaderProgram)
-QT_FORWARD_DECLARE_CLASS(QOpenGLTexture)
+class QOpenGLShaderProgram;
+class QOpenGLTexture;
 
 class OpenGLWidget : public QOpenGLWidget, protected QOpenGLFunctions
 {
@@ -25,8 +24,9 @@ signals:
 
 public Q_SLOTS:
     void onShowYUV(std::shared_ptr<YUV420Frame> frame);
+    void clearWidget();
 
-public:
+protected:
     void initializeGL() override;
     void paintGL() override;
     virtual void mouseReleaseEvent(QMouseEvent *event) override;
@@ -54,7 +54,7 @@ private:
     // 原始数据
     std::shared_ptr<YUV420Frame> m_frame;
 
-    bool m_isDoubleClick;
+    bool m_isDoubleClicked;
 
     QTimer m_timer;
 };

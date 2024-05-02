@@ -22,28 +22,28 @@ void testThreadPool() {
 }
 
 void testOpenFile(QString url) {
-    jtPlayer::get()->processInput(url);
-    jtPlayer::get()->close();
+    JTPlayer::get()->processInput(url);
+    JTPlayer::get()->close();
 }
 
 void testDemux(QString url)
 {
-    jtPlayer::get()->processInput(url);
+    JTPlayer::get()->processInput(url);
     JTDemux demux;
     demux.demux(std::shared_ptr<void>(nullptr));
     demux.exit();
 }
 
 void testPlayer(QString url) {
-    jtPlayer::get()->processInput(url);
-    jtPlayer::get()->play();
+    JTPlayer::get()->processInput(url);
+    JTPlayer::get()->play();
     int i = 2;
     while (i--) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    jtPlayer::get()->m_jtdemux->m_exit = true;
-    jtPlayer::get()->m_jtdecoder->m_exit = true;
-    jtPlayer::get()->m_jtoutput->m_exit = true;
+    JTPlayer::get()->m_jtDemux->m_exit = true;
+    JTPlayer::get()->m_jtDecoder->m_exit = true;
+    JTPlayer::get()->m_jtOutput->m_exit = true;
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    jtPlayer::get()->close();
+    JTPlayer::get()->close();
 }

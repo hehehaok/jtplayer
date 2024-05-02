@@ -3,7 +3,7 @@
 #include "jtplayer.h"
 #include "jtdecoder.h"
 #include "jtdemux.h"
-#include "VFrame.h"
+#include "vframe.h"
 #include <thread>
 #include <chrono>
 
@@ -26,15 +26,14 @@
 
 
 JTOutput::JTOutput(QObject *parent) : QObject(parent),
-          m_jtdecoder(jtPlayer::get()->m_jtdecoder),
-          m_clockInitFlag(false),
-          m_frameTimer(0.00),
-          m_exit(false),
-          m_pause(false),
-          m_speed(1.0),
-          m_volume(30)
+    m_videoCodecPar(NULL),
+    m_swsCtx(NULL),
+    m_videoBuffer(NULL),
+    m_swrCtx(NULL),
+    m_audioBuffer(NULL),
+    m_audioFrame(NULL)
 {
-    outputInit();
+
 }
 
 JTOutput::~JTOutput()
@@ -46,7 +45,15 @@ JTOutput::~JTOutput()
 
 bool JTOutput::outputInit()
 {
+    m_exit = false;
+    m_pause = false;
+    m_speed = 1.0;
+    m_volume = 30;
+    m_frameTimer = 0.00;
+    m_clockInitFlag = false;
+    m_jtDecoder = JTPlayer::get()->m_jtDecoder;
     m_errorBuffer[1023] = '\0';
+
     if(!initVideo()) {
         qDebug() << "init video failed!\n";
         return false;
@@ -61,14 +68,31 @@ bool JTOutput::outputInit()
 void JTOutput::exit()
 {
     m_exit = true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (m_audioFrame != NULL) {
+        av_frame_free(&m_audioFrame);
+    }
+    if (m_swsCtx != NULL) {
+        sws_freeContext(m_swsCtx);
+        m_swsCtx = NULL;
+    }
+    if (m_swrCtx != NULL) {
+        swr_free(&m_swrCtx);
+    }
+    if (m_videoBuffer != NULL) {
+        av_freep(&m_videoBuffer);
+    }
+    if (m_audioBuffer != NULL) {
+        av_freep(&m_audioBuffer);
+    }
     qDebug() << "output exit!\n";
 }
 
 bool JTOutput::initVideo()
 {
-    m_videoIndex = jtPlayer::get()->Vstreamindex;
-    m_videoFrameTimeBase = jtPlayer::get()->avformtctx->streams[m_videoIndex]->time_base;
-    m_videoCodecPar = jtPlayer::get()->avformtctx->streams[m_videoIndex]->codecpar;
+    m_videoIndex = JTPlayer::get()->m_videoStreamIndex;
+    m_videoFrameTimeBase = JTPlayer::get()->m_avFmtCtx->streams[m_videoIndex]->time_base;
+    m_videoCodecPar = JTPlayer::get()->m_avFmtCtx->streams[m_videoIndex]->codecpar;
     m_dstPixWidth = m_videoCodecPar->width;         // 目标图像宽度，初始值设置与源相同
     m_dstPixHeight = m_videoCodecPar->height;       // 目标图像高度，初始值设置与源相同
     m_dstPixFmt = AV_PIX_FMT_YUV420P;
@@ -82,14 +106,14 @@ bool JTOutput::initVideo()
     }
 
     int bufferSize = av_image_get_buffer_size(m_dstPixFmt, m_dstPixWidth, m_dstPixHeight, 1);  // 计算对应格式、对应宽高下一帧图像所需要的缓冲区大小
-    m_buffer = NULL;
-    m_buffer = (uint8_t*)av_realloc(m_buffer, bufferSize * sizeof(uint8_t));                   // 按照大小分配对应内存
-    av_image_fill_arrays(m_pixels, m_pitch, m_buffer, m_dstPixFmt, m_dstPixWidth, m_dstPixHeight, 1); // 提供缓冲区中各分量入口以及对应大小
+    m_videoBuffer = (uint8_t*)av_realloc(NULL, bufferSize * sizeof(uint8_t));                   // 按照大小分配对应内存
+    av_image_fill_arrays(m_pixels, m_pitch, m_videoBuffer, m_dstPixFmt, m_dstPixWidth, m_dstPixHeight, 1); // 提供缓冲区中各分量入口以及对应大小
     return true;
 }
 
-void JTOutput::videoCallBack(std::shared_ptr<void> par)
+void JTOutput::videoCallBack(std::shared_ptr<void> param)
 {
+    Q_UNUSED(param);
     double time = 0.00;
     double duration = 0.00;
     double delay = 0.00;
@@ -104,12 +128,12 @@ void JTOutput::videoCallBack(std::shared_ptr<void> par)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
-        if (m_jtdecoder->getRemainingVFrame()) {
-            MyFrame* lastFrame = m_jtdecoder->peekLastVFrame();
-            MyFrame* curFrame = m_jtdecoder->peekCurVFrame();
+        if (m_jtDecoder->getRemainingVideoFrame()) {
+            MyFrame* lastFrame = m_jtDecoder->peekLastVideoFrame();
+            MyFrame* curFrame = m_jtDecoder->peekCurVideoFrame();
 
-            if (curFrame->serial != m_jtdecoder->m_jtdemux->m_videoPacketQueue.serial) {
-                m_jtdecoder->setNextVFrame();
+            if (curFrame->serial != m_jtDecoder->m_jtDemux->m_videoPacketQueue.serial) {
+                m_jtDecoder->setNextVideoFrame();
                 continue;
             }
             if (curFrame->serial != lastFrame->serial) {
@@ -127,18 +151,18 @@ void JTOutput::videoCallBack(std::shared_ptr<void> par)
             if (time - m_frameTimer > AV_SYNC_THRESHOLD_MAX) {
                 m_frameTimer = time;
             }
-            if (m_jtdecoder->getRemainingVFrame() > 1) {
-                MyFrame* nextFrame = m_jtdecoder->peekNextVFrame();
+            if (m_jtDecoder->getRemainingVideoFrame() > 1) {
+                MyFrame* nextFrame = m_jtDecoder->peekNextVideoFrame();
                 duration = nextFrame->pts - curFrame->pts;
                 if (time > m_frameTimer + duration) { // 说明此时系统时间超过了本帧播放的时间，因此应该直接丢弃
-                    m_jtdecoder->setNextVFrame();
+                    m_jtDecoder->setNextVideoFrame();
                     qDebug() << "abandon the current video frame!\n";
                     continue;
                 }
             }
             displayImage(&curFrame->frame);
             qDebug() << "display the frame, pts:" << curFrame->frame.pts * av_q2d(m_videoFrameTimeBase) << "!\n";
-            m_jtdecoder->setNextVFrame();
+            m_jtDecoder->setNextVideoFrame();
         }
         else {
             qDebug() << "remaining video frame is 0!\n";
@@ -234,9 +258,9 @@ bool JTOutput::initAudio()
         return false;
     }
 
-    m_audioIndex = jtPlayer::get()->Astreamindex;
-    m_audioFrameTimeBase = jtPlayer::get()->avformtctx->streams[m_audioIndex]->time_base;
-    m_audioCodecPar = jtPlayer::get()->avformtctx->streams[m_audioIndex]->codecpar;
+    m_audioIndex = JTPlayer::get()->m_audioStreamIndex;
+    m_audioFrameTimeBase = JTPlayer::get()->m_avFmtCtx->streams[m_audioIndex]->time_base;
+    m_audioCodecPar = JTPlayer::get()->m_avFmtCtx->streams[m_audioIndex]->codecpar;
     m_swrCtx = NULL;
 
     m_audioBuffer = NULL;
@@ -285,7 +309,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
             return;
         }
         if (jtoutput->m_audioBufferIndex >= jtoutput->m_audioBufferSize) { // 1帧数据读完了已经，重新拿一帧
-            bool ret = jtoutput->m_jtdecoder->getAFrame(jtoutput->m_audioFrame);
+            bool ret = jtoutput->m_jtDecoder->getAudioFrame(jtoutput->m_audioFrame);
             if (ret) {
                 jtoutput->m_audioBufferIndex = 0;
                 if ((jtoutput->m_dstSampleFmt != jtoutput->m_audioFrame->format ||
@@ -342,7 +366,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
             }
         }
         int len1 = jtoutput->m_audioBufferSize - jtoutput->m_audioBufferIndex; // 数据还没读完
-        len1 = (len1 > len ? len : len1);
+        len1 = (len1 > len ? len : len1); // 如果缓冲区中的数据大小大于回调函数单次读取的大小，则先读len然后剩下的下次再读
         SDL_MixAudio(stream, jtoutput->m_audioBuffer + jtoutput->m_audioBufferIndex, len1, jtoutput->m_volume);
         len -= len1;
         jtoutput->m_audioBufferIndex += len1;
@@ -350,7 +374,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
         // 需要注意一下 len的单位是字节,len1的单位也是字节,m_audioBufferIndex的单位也是字节
     }
     jtoutput->m_audioClock.setClock(audioPts);
-    uint32_t _pts = (uint32_t)audioPts;
+    int64_t _pts = (int64_t)audioPts;
     if (jtoutput->m_lastAudioPts != _pts) {
         emit jtoutput->AVPtsChanged(_pts);
         jtoutput->m_lastAudioPts = _pts;

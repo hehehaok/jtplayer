@@ -9,17 +9,22 @@ class JTDemux
 public:
     JTDemux();
     ~JTDemux();
-    void demux(std::shared_ptr<void> param);
+    void demux(std::shared_ptr<void> param);  // 解复用线程工作函数
 
 public:
-    PacketQueue m_audioPacketQueue;  // 音频包队列
-    PacketQueue m_videoPacketQueue;  // 视频包队列
-    const int m_maxPacketQueueSize;  // 包队列最大长度
     bool m_exit;                     // 退出解复用
+    bool m_pause;                    // 暂停解复用
     char m_errorBuffer[1024];        // 错误信息
-    AVFormatContext* m_fmtCtx;       // 输入上下文
-    int m_videoIndex;                // 视频流对应序号
-    int m_audioIndex;                // 视频流对应序号
+    AVFormatContext* m_avFmtCtx;     // 输入上下文
+    const int m_maxPacketQueueSize;  // 包队列最大长度
+
+    // 视频相关
+    PacketQueue m_audioPacketQueue;  // 音频包队列
+    int m_videoStreamIndex;          // 视频流对应序号
+
+    // 音频相关
+    PacketQueue m_videoPacketQueue;  // 视频包队列
+    int m_audioStreamIndex;          // 视频流对应序号
 
 public:
     void demuxInit();

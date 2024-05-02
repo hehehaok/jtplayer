@@ -2,6 +2,7 @@
 #define WIDGET_H
 
 #include <QWidget>
+#include "jtplayer.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class Widget; }
@@ -16,10 +17,21 @@ public:
     ~Widget();
     void init();
 
+private slots:
+    void onPauseBtnClicked();
+    void updatePauseBtnStyle(PlayerState playerState);
+    void onStopBtnClicked();
+    void totalTimeChanged(int64_t duration);
+    void curTimeChanged(int64_t curPts);
+    void muteChanged(bool checked);
+
+signals:
+    void volumeChanged(int volume);
+
+
 private:
     Ui::Widget *ui;
+    int m_lastVolume;
 
-protected:
-    virtual void paintEvent(QPaintEvent *event) override;
 };
 #endif // WIDGET_H

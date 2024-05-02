@@ -4,7 +4,8 @@
 
 JTDemux::JTDemux() : m_maxPacketQueueSize(30)
 {
-    demuxInit();
+    m_audioPacketQueue.size = 0;
+    m_videoPacketQueue.size = 0;
 }
 
 JTDemux::~JTDemux()
@@ -16,11 +17,16 @@ JTDemux::~JTDemux()
 
 void JTDemux::demux(std::shared_ptr<void> param)
 {
+    Q_UNUSED(param);
     AVPacket* avpkt = av_packet_alloc();
     int ret = -1;
     while (true) {
         if (m_exit) {
             break;
+        }
+        if (m_pause) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
         }
         if (getPacketQueueSize(&m_audioPacketQueue) >= m_maxPacketQueueSize || getPacketQueueSize(&m_videoPacketQueue) >= m_maxPacketQueueSize)
         {
@@ -31,18 +37,18 @@ void JTDemux::demux(std::shared_ptr<void> param)
         }
 //        if (m_isSeek)
         memset(avpkt, 0, sizeof(*avpkt));
-        ret = av_read_frame(m_fmtCtx, avpkt);
+        ret = av_read_frame(m_avFmtCtx, avpkt);
         if (ret != 0) {
             av_strerror(ret, m_errorBuffer, sizeof(m_errorBuffer));
             qDebug() << "demux packet failed:" << m_errorBuffer << "\n";
             continue;
         }
-        if (avpkt->stream_index == m_videoIndex) {
-            qDebug() << "demux vedio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_videoIndex]->time_base) << "\n";
+        if (avpkt->stream_index == m_videoStreamIndex) {
+            qDebug() << "demux vedio packet pts:" << avpkt->pts * av_q2d(m_avFmtCtx->streams[m_videoStreamIndex]->time_base) << "\n";
             pushPacket(&m_videoPacketQueue, avpkt);
         }
-        else if (avpkt->stream_index == m_audioIndex) {
-            qDebug() << "demux audio packet pts:" << avpkt->pts * av_q2d(m_fmtCtx->streams[m_audioIndex]->time_base) << "\n";
+        else if (avpkt->stream_index == m_audioStreamIndex) {
+            qDebug() << "demux audio packet pts:" << avpkt->pts * av_q2d(m_avFmtCtx->streams[m_audioStreamIndex]->time_base) << "\n";
             pushPacket(&m_audioPacketQueue, avpkt);
         }
         else {
@@ -71,21 +77,20 @@ void JTDemux::demuxInit()
     m_videoPacketQueue.serial = 0;
 
     m_exit = false;
+    m_pause= false;
     m_errorBuffer[1023] = '\0';
-    m_fmtCtx = jtPlayer::get()->avformtctx;
-    m_videoIndex = jtPlayer::get()->Vstreamindex;
-    m_audioIndex = jtPlayer::get()->Astreamindex;
+    m_avFmtCtx = JTPlayer::get()->m_avFmtCtx;
+    m_videoStreamIndex = JTPlayer::get()->m_videoStreamIndex;
+    m_audioStreamIndex = JTPlayer::get()->m_audioStreamIndex;
 }
 
 void JTDemux::exit()
 {
     m_exit = true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     packetQueueFlush(&m_audioPacketQueue);
     packetQueueFlush(&m_videoPacketQueue);
-    if (m_fmtCtx) {
-        jtPlayer::get()->close();
-        m_fmtCtx = NULL;
-    }
+    m_avFmtCtx = NULL;
     qDebug() << "demux exit!\n";
 }
 
@@ -100,7 +105,7 @@ bool JTDemux::getPacket(PacketQueue *queue, AVPacket *pkt, PktDecoder *decoder)
     std::unique_lock<std::mutex> lock(queue->mutex);
     while (queue->size == 0) {
         bool ret = queue->cond.wait_for(lock, std::chrono::microseconds(100),
-                                        [&] {return queue->size & !m_exit;});
+                                        [&] {return queue->size && !m_exit;});
         if (!ret) {
             if (decoder->codecCtx->codec_type == AVMEDIA_TYPE_VIDEO)
                 qDebug() << "video packet queue size is" << queue->size << ", get packet failed!\n";
@@ -109,6 +114,9 @@ bool JTDemux::getPacket(PacketQueue *queue, AVPacket *pkt, PktDecoder *decoder)
             return false;
         }
     }
+    // getPakcet主要在解码线程中用到，当解码线程发现自己的解码器序号与包队列的解码器序号对不上时
+    // 就知道已经发生跳转了，此时解码器需要清空自己的缓存，然后更新序列号
+    // 但是为什么用packet的序列号更新，而不是用queue的序列号更新呢
     if (queue->serial != decoder->serial) {
         avcodec_flush_buffers(decoder->codecCtx);
         decoder->serial = queue->pktQue[queue->readIndex].serial;

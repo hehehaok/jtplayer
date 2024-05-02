@@ -66,10 +66,11 @@ void ThreadPool::releasePool()
     for (int i = 0; i < m_maxThreads; i++) {
         m_threadQueue[i].isTerminate = true;
     }
+    m_initFlag = -1;
     lock.unlock();
     m_cond.notify_all();
     // 给500ms时间让各线程执行完毕后退出
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 void ThreadPool::threadEventLoop(void *param)

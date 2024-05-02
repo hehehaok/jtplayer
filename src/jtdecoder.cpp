@@ -5,7 +5,8 @@
 
 JTDecoder::JTDecoder() : m_maxFrameQueueSize(16)
 {
-    decoderInit();
+    m_audioFrameQueue.size = 0;
+    m_videoFrameQueue.size = 0;
 }
 
 JTDecoder::~JTDecoder()
@@ -30,22 +31,24 @@ void JTDecoder::decoderInit()
     m_videoFrameQueue.pushIndex = 0;
     m_videoFrameQueue.shown = 0;
 
-    m_audioPktDecoder.codecCtx = jtPlayer::get()->Acodecctx;
+    m_audioPktDecoder.codecCtx = JTPlayer::get()->m_audioCodecCtx;
     m_audioPktDecoder.serial = 0;
-    m_videoPktDecoder.codecCtx = jtPlayer::get()->Vcodecctx;
+    m_videoPktDecoder.codecCtx = JTPlayer::get()->m_videoCodecCtx;
     m_videoPktDecoder.serial = 0;
 
     m_exit = false;
+    m_pause = false;
     m_errorBuffer[1023] = '\0';
-    m_audioFrameTimeBase = jtPlayer::get()->avformtctx->streams[jtPlayer::get()->Astreamindex]->time_base;
-    m_videoFrameTimeBase = jtPlayer::get()->avformtctx->streams[jtPlayer::get()->Vstreamindex]->time_base;
-    m_videoFrameRate = av_guess_frame_rate(jtPlayer::get()->avformtctx,
-                                           jtPlayer::get()->avformtctx->streams[jtPlayer::get()->Vstreamindex], NULL);
+    m_audioFrameTimeBase = JTPlayer::get()->m_avFmtCtx->streams[JTPlayer::get()->m_audioStreamIndex]->time_base;
+    m_videoFrameTimeBase = JTPlayer::get()->m_avFmtCtx->streams[JTPlayer::get()->m_videoStreamIndex]->time_base;
+    AVRational videoFrameRate = av_guess_frame_rate(JTPlayer::get()->m_avFmtCtx,
+                                           JTPlayer::get()->m_avFmtCtx->streams[JTPlayer::get()->m_videoStreamIndex], NULL);
+    m_videoFrameDuration = (videoFrameRate.den && videoFrameRate.num) ? av_q2d(AVRational{videoFrameRate.den, videoFrameRate.num}) : 0.00;
 
-    m_jtdemux = jtPlayer::get()->m_jtdemux;
+    m_jtDemux = JTPlayer::get()->m_jtDemux;
 }
 
-void JTDecoder::pushAFrame(AVFrame *frame)
+void JTDecoder::pushAudioFrame(AVFrame *frame)
 {
     std::unique_lock<std::mutex> lock(m_audioFrameQueue.mutex);
     av_frame_move_ref(&m_audioFrameQueue.frameQue[m_audioFrameQueue.pushIndex].frame, frame);
@@ -56,13 +59,12 @@ void JTDecoder::pushAFrame(AVFrame *frame)
     m_audioFrameQueue.size++;
 }
 
-void JTDecoder::pushVFrame(AVFrame *frame)
+void JTDecoder::pushVideoFrame(AVFrame *frame)
 {
     std::unique_lock<std::mutex> lock(m_videoFrameQueue.mutex);
     av_frame_move_ref(&m_videoFrameQueue.frameQue[m_videoFrameQueue.pushIndex].frame, frame);
     m_videoFrameQueue.frameQue[m_videoFrameQueue.pushIndex].serial = m_videoPktDecoder.serial;
-    m_videoFrameQueue.frameQue[m_videoFrameQueue.pushIndex].duration = (m_videoFrameRate.den && m_videoFrameRate.num) ?
-                av_q2d(AVRational{m_videoFrameRate.den, m_videoFrameRate.num}) : 0.00;
+    m_videoFrameQueue.frameQue[m_videoFrameQueue.pushIndex].duration = m_videoFrameDuration;
     m_videoFrameQueue.frameQue[m_videoFrameQueue.pushIndex].pts =
         m_videoFrameQueue.frameQue[m_videoFrameQueue.pushIndex].frame.pts * av_q2d(m_videoFrameTimeBase);
     m_videoFrameQueue.pushIndex = (m_videoFrameQueue.pushIndex + 1) % m_maxFrameQueueSize;
@@ -79,7 +81,7 @@ void JTDecoder::frameQueueFlush(FrameQueue *queue)
     }
 }
 
-int JTDecoder::getRemainingVFrame()
+int JTDecoder::getRemainingVideoFrame()
 {
     std::unique_lock<std::mutex> lock(m_videoFrameQueue.mutex);
     if(!m_videoFrameQueue.size) {
@@ -88,14 +90,14 @@ int JTDecoder::getRemainingVFrame()
     return m_videoFrameQueue.size - m_videoFrameQueue.shown;
 }
 
-MyFrame *JTDecoder::peekLastVFrame()
+MyFrame *JTDecoder::peekLastVideoFrame()
 {
     std::unique_lock<std::mutex> lock(m_videoFrameQueue.mutex);
     MyFrame* frame = &m_videoFrameQueue.frameQue[m_videoFrameQueue.readIndex];
     return frame;
 }
 
-MyFrame *JTDecoder::peekCurVFrame()
+MyFrame *JTDecoder::peekCurVideoFrame()
 {
     std::unique_lock<std::mutex> lock(m_videoFrameQueue.mutex);
     while (!m_videoFrameQueue.size) {
@@ -111,10 +113,10 @@ MyFrame *JTDecoder::peekCurVFrame()
     return frame;
 }
 
-MyFrame *JTDecoder::peekNextVFrame()
+MyFrame *JTDecoder::peekNextVideoFrame()
 {
     std::unique_lock<std::mutex> lock(m_videoFrameQueue.mutex);
-    while (m_videoFrameQueue.size < 2) {
+    while (m_videoFrameQueue.size < 2) { // 小于2的逻辑就是因为队列中会保留前一帧
         bool ret = m_videoFrameQueue.cond.wait_for(lock, std::chrono::milliseconds(100), [this]
                                                    { return m_videoFrameQueue.size && !m_exit; });
         if (!ret)
@@ -127,7 +129,7 @@ MyFrame *JTDecoder::peekNextVFrame()
     return frame;
 }
 
-void JTDecoder::setNextVFrame()
+void JTDecoder::setNextVideoFrame()
 {
     std::unique_lock<std::mutex> lock(m_videoFrameQueue.mutex);
     if (!m_videoFrameQueue.size)
@@ -137,6 +139,10 @@ void JTDecoder::setNextVFrame()
     // 如果队列中的帧未被显示，则将其设置为已显示，并返回
     if (!m_videoFrameQueue.shown)
     {
+        // 具体的逻辑就是，当读完第一帧(readIndex + shown = 0)，然后准备setNextVideoFrame的时候，发现目前读完的是第一帧
+        // 因此只是将shown置为1，即加1，然后直接返回，不会真的将readIndex加1，切换到下一帧，即保留了前一帧
+        // 当再次取读取的时候(readIndex + shown = 1)，由于shown加了1，因此同样能读取到第二帧，同时不影响保留前一帧，
+        // 因此索引readIndex + shown对应的是最新要去读取的帧，而readIndex对应的是前一帧，且前一帧是一直得到保留的
         m_videoFrameQueue.shown = 1;
         return;
     }
@@ -150,7 +156,7 @@ void JTDecoder::setNextVFrame()
     m_videoFrameQueue.size--;
 }
 
-bool JTDecoder::getAFrame(AVFrame *frame)
+bool JTDecoder::getAudioFrame(AVFrame *frame)
 {
     if (frame == nullptr) {
         qDebug() << "the frame is nullptr, get audio frame failed!\n";
@@ -164,7 +170,7 @@ bool JTDecoder::getAFrame(AVFrame *frame)
             return false;
         }
     }
-    if (m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].serial != m_jtdemux->m_audioPacketQueue.serial)
+    if (m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].serial != m_jtDemux->m_audioPacketQueue.serial)
     {
         av_frame_unref(&m_audioFrameQueue.frameQue[m_audioFrameQueue.readIndex].frame);
         m_audioFrameQueue.readIndex = (m_audioFrameQueue.readIndex + 1) % m_maxFrameQueueSize;
@@ -180,6 +186,7 @@ bool JTDecoder::getAFrame(AVFrame *frame)
 
 void JTDecoder::audioDecoder(std::shared_ptr<void> param)
 {
+    Q_UNUSED(param);
     AVPacket *packet = av_packet_alloc();
     AVFrame *frame = av_frame_alloc();
     int errtimes = 10; // 最多允许失败10次
@@ -187,12 +194,16 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
         if (m_exit) {
             break;
         }
+        if (m_pause) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
         if (m_audioFrameQueue.size >= m_maxFrameQueueSize) {
             qDebug() << "audio frame queue size is" << m_audioFrameQueue.size << ", audio decode useless loop!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
-        bool ret = m_jtdemux->getPacket(&m_jtdemux->m_audioPacketQueue, packet, &m_audioPktDecoder);
+        bool ret = m_jtDemux->getPacket(&m_jtDemux->m_audioPacketQueue, packet, &m_audioPktDecoder);
         if (ret) {
             int err = avcodec_send_packet(m_audioPktDecoder.codecCtx, packet);
             if (err < 0 || err == AVERROR(EAGAIN) || err == AVERROR_EOF) {
@@ -216,7 +227,7 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
                 continue;
             }
             else {
-                pushAFrame(frame);
+                pushAudioFrame(frame);
             }
         }
         else {
@@ -231,18 +242,23 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
 
 void JTDecoder::videoDecoder(std::shared_ptr<void> param)
 {
+    Q_UNUSED(param);
     AVPacket *packet = av_packet_alloc();
     AVFrame *frame = av_frame_alloc();
     while (true) {
         if (m_exit) {
             break;
         }
+        if (m_pause) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
         if (m_videoFrameQueue.size >= m_maxFrameQueueSize) {
             qDebug() << "video frame queue size is" << m_videoFrameQueue.size << ", video decode useless loop!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
-        bool ret = m_jtdemux->getPacket(&m_jtdemux->m_videoPacketQueue, packet, &m_videoPktDecoder);
+        bool ret = m_jtDemux->getPacket(&m_jtDemux->m_videoPacketQueue, packet, &m_videoPktDecoder);
         if (ret) {
             int err = avcodec_send_packet(m_videoPktDecoder.codecCtx, packet);
             if (err < 0 || err == AVERROR(EAGAIN) || err == AVERROR_EOF) {
@@ -261,7 +277,7 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
                 continue;
             }
             else {
-                pushVFrame(frame);
+                pushVideoFrame(frame);
             }
         }
         else {
@@ -277,6 +293,8 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
 void JTDecoder::exit()
 {
     m_exit = true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    m_jtDemux.reset();
     frameQueueFlush(&m_audioFrameQueue);
     frameQueueFlush(&m_videoFrameQueue);
     qDebug() << "decoder exit!\n";

@@ -8,39 +8,13 @@
 #define VERTEXIN 0
 #define TEXTUREIN 1
 
-const char *vshadersrc = "attribute vec4 vertexIn; \
-attribute vec2 textureIn; \
-varying vec2 textureOut;  \
-void main(void)           \
-{                         \
-    gl_Position = vertexIn; \
-    textureOut = textureIn; \
-}";
-
-const char *fshadersrc = "varying vec2 textureOut; \
-uniform sampler2D tex_y; \
-uniform sampler2D tex_u; \
-uniform sampler2D tex_v; \
-void main(void) \
-{ \
-    vec3 yuv; \
-    vec3 rgb; \
-    yuv.x = texture2D(tex_y, textureOut).r; \
-    yuv.y = texture2D(tex_u, textureOut).r - 0.5; \
-    yuv.z = texture2D(tex_v, textureOut).r - 0.5; \
-    rgb = mat3( 1,       1,         1, \
-                0,       -0.39465,  2.03211, \
-                1.13983, -0.58060,  0) * yuv; \
-    gl_FragColor = vec4(rgb, 1); \
-}";
-
-OpenGLWidget::OpenGLWidget(QWidget *parent) : QOpenGLWidget(parent), m_isDoubleClick(false)
+OpenGLWidget::OpenGLWidget(QWidget *parent) : QOpenGLWidget(parent), m_isDoubleClicked(false)
 {
     connect(&m_timer, &QTimer::timeout, [this]()
             {
-            if (!this->m_isDoubleClick)
+            if (!this->m_isDoubleClicked)
                 emit this->mouseClicked();
-            this->m_isDoubleClick = false;
+            this->m_isDoubleClicked = false;
             this->m_timer.stop(); });
     m_timer.setInterval(400);
 }
@@ -88,10 +62,10 @@ void OpenGLWidget::initializeGL()
 
     program = new QOpenGLShaderProgram(this);
 
-    program->addShaderFromSourceCode(QOpenGLShader::Vertex, vshadersrc);
-    program->addShaderFromSourceCode(QOpenGLShader::Fragment, fshadersrc);
+    program->addShaderFromSourceFile(QOpenGLShader::Vertex, ":/shaders/yuv.vert");
+    program->addShaderFromSourceFile(QOpenGLShader::Fragment, ":/shaders/yuv.frag");
 
-    // 绑定输入的定点坐标和纹理坐标属性
+    // 绑定输入的顶点坐标和纹理坐标属性
     program->bindAttributeLocation("vertexIn", VERTEXIN);
     program->bindAttributeLocation("textureIn", TEXTUREIN);
 
@@ -185,6 +159,7 @@ void OpenGLWidget::paintGL()
 
 void OpenGLWidget::mouseReleaseEvent(QMouseEvent *event)
 {
+    Q_UNUSED(event);
     if (!m_timer.isActive()) {
         m_timer.start();
     }
@@ -192,7 +167,8 @@ void OpenGLWidget::mouseReleaseEvent(QMouseEvent *event)
 
 void OpenGLWidget::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    m_isDoubleClick = 1;
+    Q_UNUSED(event);
+    m_isDoubleClicked = true;
     emit mouseDoubleClicked();
 }
 
@@ -200,11 +176,20 @@ void OpenGLWidget::onShowYUV(std::shared_ptr<YUV420Frame> frame)
 {
     if (!frame)
     {
-        qDebug() << "null frame!\n";
+        qDebug() << "show YUV failed, null frame!\n";
         return;
     }
     m_frame = frame; // 直接赋值给 m_frame，旧的 m_frame 会在此时自动释放
-    qDebug() << "receive success!!!! " << m_frame->getBufferU() << m_frame->getBufferV() << m_frame->getBufferY();
+//    qDebug() << "receive success!!!! " << m_frame->getBufferU() << m_frame->getBufferV() << m_frame->getBufferY();
+    update();
+}
+
+void OpenGLWidget::clearWidget()
+{
+    makeCurrent();
+    m_frame = NULL;
+    glClear(GL_COLOR_BUFFER_BIT);
+    doneCurrent();
     update();
 }
 

@@ -5,18 +5,24 @@
 #include "threadpool.h"
 #include "SDL2/SDL.h"
 
-jtPlayer::jtPlayer(QObject *parent) : QObject(parent)
+JTPlayer::JTPlayer(QObject *parent) : QObject(parent),
+    m_jtDemux(std::make_shared<JTDemux>()),
+    m_jtDecoder(std::make_shared<JTDecoder>()),
+    m_jtOutput(std::make_shared<JTOutput>()),
+    m_playerState(PlayerState::STOPED),
+    m_exit(false), m_pause(false),
+    m_duration(0), m_curTime(0.00), m_speed(0.00)
 {
 
 }
 
-jtPlayer* jtPlayer::get()
+JTPlayer* JTPlayer::get()
 {
-    static jtPlayer videoFFmpeg;
-    return &videoFFmpeg;
+    static JTPlayer jtPlayer;
+    return &jtPlayer;
 }
 
-bool jtPlayer::processInput(const QString url)
+bool JTPlayer::processInput(const QString url)
 {
     // 初始化成员变量
     if (!playerInit())
@@ -50,197 +56,228 @@ bool jtPlayer::processInput(const QString url)
     return true;
 }
 
-void jtPlayer::play()
+void JTPlayer::play()
 {
-    ThreadPool::addTask(std::bind(&JTDemux::demux, m_jtdemux, std::placeholders::_1), std::make_shared<int>(1));
-    ThreadPool::addTask(std::bind(&JTDecoder::audioDecoder, m_jtdecoder, std::placeholders::_1), std::make_shared<int>(2));
-    ThreadPool::addTask(std::bind(&JTDecoder::videoDecoder, m_jtdecoder, std::placeholders::_1), std::make_shared<int>(3));
-    ThreadPool::addTask(std::bind(&JTOutput::videoCallBack, m_jtoutput, std::placeholders::_1), std::make_shared<int>(4));
+    ThreadPool::addTask(std::bind(&JTDemux::demux, m_jtDemux, std::placeholders::_1), std::make_shared<int>(1));
+    ThreadPool::addTask(std::bind(&JTDecoder::audioDecoder, m_jtDecoder, std::placeholders::_1), std::make_shared<int>(2));
+    ThreadPool::addTask(std::bind(&JTDecoder::videoDecoder, m_jtDecoder, std::placeholders::_1), std::make_shared<int>(3));
+    ThreadPool::addTask(std::bind(&JTOutput::videoCallBack, m_jtOutput, std::placeholders::_1), std::make_shared<int>(4));
     SDL_PauseAudio(0);
+    emit playerStateChanged(PlayerState::PLAYING);
 }
 
-bool jtPlayer::playerInit()
+bool JTPlayer::playerInit()
 {
-    errorBuffer[1023] = '\0';
-    videoBuffer[1023] = '\0';
-    avformtctx = NULL;          // 输入文件格式上下文
+    m_errorBuffer[1023] = '\0';
+    m_avFmtCtx = NULL;          // 输入文件格式上下文
 
     // 视频相关
-    Vcodecctx = NULL;           // 视频解码上下文
-    Vcodec = NULL;              // 视频解码器
-    Vswsctx = NULL;             // 视频帧格式转换上下文
-    Vstreamindex = -1;          // 视频流索引
+    m_videoCodecCtx = NULL;           // 视频解码上下文
+    m_videoCodec = NULL;              // 视频解码器
+    m_videoStreamIndex = -1;          // 视频流索引
 
     // 音频相关
-    Acodecctx = NULL;           // 音频解码上下文
-    Acodec = NULL;              // 视频解码器
-    Aswrctx = NULL;             // 音频采样转换上下文
-    Astreamindex = -1;          // 视频流索引
+    m_audioCodecCtx = NULL;           // 音频解码上下文
+    m_audioCodec = NULL;              // 视频解码器
+    m_audioStreamIndex = -1;          // 视频流索引
 
     avformat_network_init(); // 初始化网络
     return true;
 }
 
-bool jtPlayer::setInput(const QString url)
+bool JTPlayer::setInput(const QString url)
 {
     // 打开视频文件
-    int res = avformat_open_input(&avformtctx, url.toStdString().c_str(), NULL, NULL);
+    int res = avformat_open_input(&m_avFmtCtx, url.toStdString().c_str(), NULL, NULL);
     if (res < 0) {
-        av_strerror(res, errorBuffer, sizeof(errorBuffer));
-        qDebug() << "open " << url << " failed:" << errorBuffer << "\n";
+        av_strerror(res, m_errorBuffer, sizeof(m_errorBuffer));
+        qDebug() << "open " << url << " failed:" << m_errorBuffer << "\n";
         return false;
     }
 
     // 获取流信息
-    res = avformat_find_stream_info(avformtctx, NULL);
+    res = avformat_find_stream_info(m_avFmtCtx, NULL);
     if (res < 0) {
-        av_strerror(res, errorBuffer, sizeof(errorBuffer));
-        qDebug() << "find steam info failed:" << errorBuffer << "\n";
+        av_strerror(res, m_errorBuffer, sizeof(m_errorBuffer));
+        qDebug() << "find steam info failed:" << m_errorBuffer << "\n";
         return false;
     }
-    qDebug() << "open " << url << " success!\nTotalMs : "
-             << avformtctx->duration / AV_TIME_BASE << "\nStreamNums : "
-             << avformtctx->nb_streams << "\nStartTime : "
-             << avformtctx->start_time << "\nBitRate : "
-             << avformtctx->bit_rate << "\n";
+
+    m_duration = m_avFmtCtx->duration / AV_TIME_BASE;
+    emit durationChanged(m_duration);
+
+    qDebug() << "open " << url << " success!\nTotalSec : "
+             << m_duration << "\nStreamNums : "
+             << m_avFmtCtx->nb_streams << "\nStartTime : "
+             << m_avFmtCtx->start_time << "\nBitRate : "
+             << m_avFmtCtx->bit_rate << "\n";
     return true;
 }
 
-bool jtPlayer::setVideo()
+bool JTPlayer::setVideo()
 {
     // 寻找解码器
-    for (size_t i = 0; i < avformtctx->nb_streams; i++) {
-        AVCodecParameters* avcodecpar = avformtctx->streams[i]->codecpar;
+    for (size_t i = 0; i < m_avFmtCtx->nb_streams; i++) {
+        AVCodecParameters* avcodecpar = m_avFmtCtx->streams[i]->codecpar;
         if (avcodecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             // 记录视频流对应序号
-            Vstreamindex = i;
+            m_videoStreamIndex = i;
 
             // 找到对应解码器
-            Vcodec = avcodec_find_decoder(avcodecpar->codec_id);
-            if (!Vcodec) {
+            m_videoCodec = avcodec_find_decoder(avcodecpar->codec_id);
+            if (!m_videoCodec) {
                 qDebug() << "video codec not found!\n";
                 return false;
             }
 
             // 构建解码器上下文
-            Vcodecctx = avcodec_alloc_context3(Vcodec);
+            m_videoCodecCtx = avcodec_alloc_context3(m_videoCodec);
 
             // 用解码器参数初始化对应解码器上下文
-            int err = avcodec_parameters_to_context(Vcodecctx, avcodecpar);
+            int err = avcodec_parameters_to_context(m_videoCodecCtx, avcodecpar);
             if (err < 0) {
-                av_strerror(err, errorBuffer, sizeof(errorBuffer));
-                qDebug() << "video avcodec_parameters_to_context() failed:" << errorBuffer << "\n";
+                av_strerror(err, m_errorBuffer, sizeof(m_errorBuffer));
+                qDebug() << "video avcodec_parameters_to_context() failed:" << m_errorBuffer << "\n";
                 return false;
             }
             // 打开解码器
-            err = avcodec_open2(Vcodecctx, Vcodec, NULL);
+            err = avcodec_open2(m_videoCodecCtx, m_videoCodec, NULL);
             if (err != 0) {
-                av_strerror(err, errorBuffer, sizeof(errorBuffer));
-                qDebug() << "open video avcodec failed:" << errorBuffer << "\n";
+                av_strerror(err, m_errorBuffer, sizeof(m_errorBuffer));
+                qDebug() << "open video avcodec failed:" << m_errorBuffer << "\n";
                 return false;
             }
             break; // 找到视频流后直接跳出循环
         }
     }
-    if (Vstreamindex == -1) {
+    if (m_videoStreamIndex == -1) {
         qDebug() << "not found video stream!\n";
         return false;
     }
     return true;
 }
 
-bool jtPlayer::setAudio()
+bool JTPlayer::setAudio()
 {
     // 寻找解码器
-    for (size_t i = 0; i < avformtctx->nb_streams; i++) {
-        AVCodecParameters* avcodecpar = avformtctx->streams[i]->codecpar;
-        if (avcodecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+    for (size_t i = 0; i < m_avFmtCtx->nb_streams; i++) {
+        AVCodecParameters* avCodecParam = m_avFmtCtx->streams[i]->codecpar;
+        if (avCodecParam->codec_type == AVMEDIA_TYPE_AUDIO) {
             // 记录音频流对应序号
-            Astreamindex = i;
+            m_audioStreamIndex = i;
 
             // 找到对应解码器
-            Acodec = avcodec_find_decoder(avcodecpar->codec_id);
-            if (!Acodec) {
+            m_audioCodec = avcodec_find_decoder(avCodecParam->codec_id);
+            if (!m_audioCodec) {
                 qDebug() << "audio codec not found!\n";
                 return false;
             }
 
             // 构建解码器上下文
-            Acodecctx = avcodec_alloc_context3(Acodec);
+            m_audioCodecCtx = avcodec_alloc_context3(m_audioCodec);
 
             // 用解码器参数初始化对应解码器上下文
-            int err = avcodec_parameters_to_context(Acodecctx, avcodecpar);
+            int err = avcodec_parameters_to_context(m_audioCodecCtx, avCodecParam);
             if (err < 0) {
-                av_strerror(err, errorBuffer, sizeof(errorBuffer));
-                qDebug() << "audio avcodec_parameters_to_context() failed:" << errorBuffer << "\n";
+                av_strerror(err, m_errorBuffer, sizeof(m_errorBuffer));
+                qDebug() << "audio avcodec_parameters_to_context() failed:" << m_errorBuffer << "\n";
                 return false;
             }
             // 打开解码器
-            err = avcodec_open2(Acodecctx, Acodec, NULL);
+            err = avcodec_open2(m_audioCodecCtx, m_audioCodec, NULL);
             if (err != 0) {
-                av_strerror(err, errorBuffer, sizeof(errorBuffer));
-                qDebug() << "open audio avcodec failed:" << errorBuffer << "\n";
+                av_strerror(err, m_errorBuffer, sizeof(m_errorBuffer));
+                qDebug() << "open audio avcodec failed:" << m_errorBuffer << "\n";
                 return false;
             }
             break; // 找到音频流后直接跳出循环
         }
     }
-    if (Astreamindex == -1) {
+    if (m_audioStreamIndex == -1) {
         qDebug() << "not found audio stream!\n";
         return false;
     }
     return true;
 }
 
-bool jtPlayer::setModule()
+bool JTPlayer::setModule()
 {
     if (!ThreadPool::init())
     {
         qDebug() << "threadpool init failed!\n";
         return false;
     }
-    m_jtdemux = std::make_shared<JTDemux>();
-    if (m_jtdemux == nullptr) {
+    if (m_jtDemux == nullptr) {
         qDebug() << "demux module init failed!\n";
         return false;
     }
-    m_jtdecoder = std::make_shared<JTDecoder>();
-    if (m_jtdecoder == nullptr) {
+    m_jtDemux->demuxInit();
+
+    if (m_jtDecoder == nullptr) {
         qDebug() << "decoder module init failed!\n";
         return false;
     }
-    m_jtoutput = std::make_shared<JTOutput>();
-    if (m_jtoutput == nullptr) {
+    m_jtDecoder->decoderInit();
+
+    if (m_jtOutput == nullptr) {
         qDebug() << "output module init failed!\n";
         return false;
     }
+    m_jtOutput->outputInit();
     return true;
 }
 
-void jtPlayer::close()
+void JTPlayer::close()
 {
-    if (Vswsctx != NULL) {
-        sws_freeContext(Vswsctx);
-        Vswsctx = NULL;
+    m_jtOutput->exit();  // 释放输出模块对应资源
+    m_jtDecoder->exit(); // 释放解码模块对应资源
+    m_jtDemux->exit();   // 释放解复用模块对应资源
+
+    if (m_videoCodecCtx != NULL) {
+        avcodec_free_context(&m_videoCodecCtx);
+        m_videoCodec = NULL;
+    }
+    if (m_audioCodecCtx != NULL) {
+        avcodec_free_context(&m_audioCodecCtx);
+        m_audioCodec = NULL;
+    }
+    if (m_avFmtCtx != NULL) {
+        avformat_close_input(&m_avFmtCtx);
     }
 
-    if (Aswrctx != NULL) {
-        sws_freeContext(Vswsctx);
-        Aswrctx = NULL;
-    }
-    if (Vcodecctx != NULL) {
-        avcodec_free_context(&Vcodecctx);
-        Vcodecctx = NULL;
-        Vcodec = NULL;
-    }
-    if (Acodecctx != NULL) {
-        avcodec_free_context(&Acodecctx);
-        Acodecctx = NULL;
-        Acodec = NULL;
-    }
-    if (avformtctx != NULL) {
-        avformat_close_input(&avformtctx);
-        avformtctx = NULL;
-    }
+    SDL_CloseAudio(); // 停止音频线程
+    ThreadPool::releasePool(); // 停止线程池中的线程
+    emit playerStateChanged(PlayerState::STOPED);
     qDebug() << "file close!\n";
+}
+
+void JTPlayer::pause(bool isPause)
+{
+    m_pause = isPause;
+    m_jtDemux->m_pause = isPause;
+    m_jtDecoder->m_pause = isPause;
+    m_jtOutput->m_pause = isPause;
+    if (isPause) {
+        SDL_PauseAudio(1);
+        emit playerStateChanged(PlayerState::PAUSED);
+    }
+    else {
+        SDL_PauseAudio(0);
+        emit playerStateChanged(PlayerState::PLAYING);
+    }
+
+}
+
+PlayerState JTPlayer::getPlayerState()
+{
+    return m_playerState;
+}
+
+void JTPlayer::setPlayerState(PlayerState playerState) {
+    m_playerState = playerState;
+}
+
+void JTPlayer::setVolume(int volume)
+{
+    m_jtOutput->m_volume = volume;
 }

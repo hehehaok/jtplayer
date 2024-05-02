@@ -17,7 +17,7 @@ public:
     void exit();
 
     bool initVideo();
-    void videoCallBack(std::shared_ptr<void> par);
+    void videoCallBack(std::shared_ptr<void> param);
     void displayImage(AVFrame* frame);
     void initAVClock();
     double vpDuration(MyFrame* curFrame, MyFrame* lastFrame);
@@ -40,7 +40,7 @@ public:
     int m_dstPixHeight;                  // 目标图像高度
     enum AVPixelFormat m_dstPixFmt;      // 目标图像格式
     int m_swsFlags;                      // 图像格式转换算法
-    uint8_t *m_buffer;                   // 目标图像缓冲区
+    uint8_t *m_videoBuffer;              // 目标图像缓冲区
     uint8_t *m_pixels[4];                // 每种像素分量对应缓冲区入口指针
     int m_pitch[4];                      // 每种像素分量对应缓冲区大小
 
@@ -52,7 +52,7 @@ public:
     uint8_t *m_audioBuffer;              // 音频缓冲区
     uint32_t m_audioBufferSize;          // 音频缓冲区大小/字节
     uint32_t m_audioBufferIndex;         // 音频缓存读索引/字节
-    uint32_t m_lastAudioPts;             //
+    int64_t m_lastAudioPts;              // 上一帧的音频pts，主要是用于更新当前的视频时间
     enum AVSampleFormat m_dstSampleFmt;  // 目标音频格式
     int m_dstChannels;                   // 目标通道数
     int m_dstFreq;                       // 目标采样率
@@ -63,13 +63,13 @@ public:
 
 
     // 相关模块
-    std::shared_ptr<JTDecoder> m_jtdecoder;  // 解码模块
+    std::shared_ptr<JTDecoder> m_jtDecoder;  // 解码模块
 
     // 时间相关
     bool m_clockInitFlag;                // 时钟是否初始化
     AVClock m_videoClock;                // 视频流对应时钟
     AVClock m_audioClock;                // 音频流对应时钟
-    double m_frameTimer;                 // 记录音视频最新的播放帧的时间戳，用于时间同步
+    double m_frameTimer;                 // 当前帧刚开始播放时的时间戳
 
     // 操作相关
     bool m_exit;                         // 退出
