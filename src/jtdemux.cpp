@@ -2,7 +2,7 @@
 #include "jtplayer.h"
 #include <thread>
 
-JTDemux::JTDemux() : m_maxPacketQueueSize(30)
+JTDemux::JTDemux() : m_maxPacketQueueSize(30), m_sleepTime(10)
 {
     m_audioPacketQueue.size = 0;
     m_videoPacketQueue.size = 0;
@@ -25,20 +25,44 @@ void JTDemux::demux(std::shared_ptr<void> param)
             break;
         }
         if (m_pause) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
+            if(!JTPlayer::get()->m_step) {
+                continue;  // 只有当m_pause为真且m_step为假时才是真正的暂停
+            }
         }
         if (getPacketQueueSize(&m_audioPacketQueue) >= m_maxPacketQueueSize || getPacketQueueSize(&m_videoPacketQueue) >= m_maxPacketQueueSize)
         {
             qDebug() << "audio packet queue size is" << getPacketQueueSize(&m_audioPacketQueue) << ","
                      << "video packet queue size is" << getPacketQueueSize(&m_videoPacketQueue) << ", demux useless loop!\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
             continue;
         }
-//        if (m_isSeek)
+        if (m_seek) {
+            int64_t seekTarget = m_seekTarget * AV_TIME_BASE;
+            ret = avformat_seek_file(m_avFmtCtx, -1, INT64_MIN, seekTarget, INT64_MAX, 0);
+            if (ret < 0) {
+                qDebug() << "seek file failed!\n";
+                return;
+            }
+            else {
+                packetQueueFlush(&m_videoPacketQueue);
+                packetQueueFlush(&m_audioPacketQueue);
+                // 会带来一系列连锁反应
+                // 首先清空包队列，同时更新包队列的序列号
+                // 然后当解码线程想getPackt的时候发现解码器序列号和包队列序列号对不上，就会把解码器缓存清空，然后更新解码器序列号
+                // 这样就可以保证包队列序列号更新后解码线程解码压入帧队列的帧序列号是最新的，但是帧队列中现有的帧可能
+                // 序列号不是最新的，这个就会交给播放线程处理，当播放线程发现要播放的帧和包队列序号对不上时，就会直接舍弃这一帧
+                // 从而完成从解复用到解码再到播放整个流程的跳转
+            }
+            m_seek = false;
+        }
         memset(avpkt, 0, sizeof(*avpkt));
         ret = av_read_frame(m_avFmtCtx, avpkt);
         if (ret != 0) {
+            if (ret == AVERROR_EOF) {
+                JTPlayer::get()->m_end = true;
+                qDebug() << "file end!";
+            }
             av_strerror(ret, m_errorBuffer, sizeof(m_errorBuffer));
             qDebug() << "demux packet failed:" << m_errorBuffer << "\n";
             continue;
@@ -78,6 +102,9 @@ void JTDemux::demuxInit()
 
     m_exit = false;
     m_pause= false;
+    m_step = false;
+    m_seek = false;
+    m_seekTarget = 0.00;
     m_errorBuffer[1023] = '\0';
     m_avFmtCtx = JTPlayer::get()->m_avFmtCtx;
     m_videoStreamIndex = JTPlayer::get()->m_videoStreamIndex;

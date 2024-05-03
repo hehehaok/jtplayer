@@ -31,7 +31,9 @@ JTOutput::JTOutput(QObject *parent) : QObject(parent),
     m_videoBuffer(NULL),
     m_swrCtx(NULL),
     m_audioBuffer(NULL),
-    m_audioFrame(NULL)
+    m_audioFrame(NULL),
+    m_volume(30),
+    m_sleepTime(10)
 {
 
 }
@@ -47,8 +49,8 @@ bool JTOutput::outputInit()
 {
     m_exit = false;
     m_pause = false;
+    m_step = false;
     m_speed = 1.0;
-    m_volume = 30;
     m_frameTimer = 0.00;
     m_clockInitFlag = false;
     m_jtDecoder = JTPlayer::get()->m_jtDecoder;
@@ -125,19 +127,21 @@ void JTOutput::videoCallBack(std::shared_ptr<void> param)
             break;
         }
         if (m_pause) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
+            if(!JTPlayer::get()->m_step) {
+                continue;  // 只有当m_pause为真且m_step为假时才是真正的暂停
+            }
         }
         if (m_jtDecoder->getRemainingVideoFrame()) {
             MyFrame* lastFrame = m_jtDecoder->peekLastVideoFrame();
             MyFrame* curFrame = m_jtDecoder->peekCurVideoFrame();
 
             if (curFrame->serial != m_jtDecoder->m_jtDemux->m_videoPacketQueue.serial) {
-                m_jtDecoder->setNextVideoFrame();
+                m_jtDecoder->setNextVideoFrame();  // 帧的序列号和包队列的序列号对不上，直接丢掉当前帧
                 continue;
             }
             if (curFrame->serial != lastFrame->serial) {
-                m_frameTimer = AVClock::getCurTimeStamp() / 1000000.0;
+                m_frameTimer = AVClock::getCurTimeStamp() / 1000000.0; // 新的帧和包队列相同且和前一帧不相同，说明是新序列号的第一帧
             }
             duration = vpDuration(curFrame, lastFrame); // 理论播放时长
             delay = computeTargetDelay(duration);       // 实际应该的播放时长
@@ -165,8 +169,11 @@ void JTOutput::videoCallBack(std::shared_ptr<void> param)
             m_jtDecoder->setNextVideoFrame();
         }
         else {
+            if (JTPlayer::get()->m_end) {
+                JTPlayer::get()->endPause();
+            }
             qDebug() << "remaining video frame is 0!\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
         }
     }
     qDebug() << "video callback exit!\n";
@@ -192,6 +199,9 @@ void JTOutput::displayImage(AVFrame *frame)
         std::shared_ptr<YUV420Frame> dst_frame = std::make_shared<YUV420Frame>(m_pixels[0], m_dstPixWidth, m_dstPixHeight);
         emit frameChanged(dst_frame);
         m_videoClock.setClock(frame->pts * av_q2d(m_videoFrameTimeBase));
+        if (JTPlayer::get()->m_step) {
+            JTPlayer::get()->m_step = false; // 当m_step为真时即逐帧状态时，播放完一帧后将m_step重新取为false从而达到播完一帧再次暂停的效果
+        }
     }
     else {
         qDebug() << "the frame to display is null!\n";
@@ -228,16 +238,18 @@ double JTOutput::computeTargetDelay(double delay)
     // 不同步时间超过阈值直接放弃同步
     if (!isnan(diff) && abs(diff) < AV_NOSYNC_THRESHOLD)
     {
-        // 视频比音频慢，加快,diff为负值
+        // diff为负值，视频比音频慢，加快
         if (diff <= -sync)
         {
-            // 不同步时间超过阈值，但当前时间戳与视频当前显示帧时间戳差值大于阈值，则将delay设置为当前时间戳与视频当前显示帧时间戳差值加上delay
+            // 理论播放时间为delay，但是此时视频已经慢于音频了，因此实际的播放时间应该要等于理论播放时间减去已经慢的时间差
+            // 相当于理论播放时间变小了
             delay = FFMAX(0, diff + delay);
         }
-        // 视频比音频快，减慢
+        // diff为正值，视频比音频快，减慢
         else if (diff >= sync && delay > AV_SYNC_FRAMEDUP_THRESHOLD)
         {
-            // 不同步时间超过阈值，但当前时间戳与视频当前显示帧时间戳差值小于阈值，则将delay设置为当前时间戳与视频当前显示帧时间戳差值加上delay
+            // 理论播放时间为delay，但是此时视频已经快于音频了，因此实际的播放时间应该要等于理论播放时间加上已经快的时间差
+            // 相当于理论播放时间变长了
             delay = diff + delay;
         }
         // 视频比音频快，减慢
@@ -308,6 +320,12 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
         if (jtoutput->m_exit) {
             return;
         }
+        if (jtoutput->m_pause) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(jtoutput->m_sleepTime));
+            if(!JTPlayer::get()->m_step) {
+                continue;  // 只有当m_pause为真且m_step为假时才是真正的暂停
+            }
+        }
         if (jtoutput->m_audioBufferIndex >= jtoutput->m_audioBufferSize) { // 1帧数据读完了已经，重新拿一帧
             bool ret = jtoutput->m_jtDecoder->getAudioFrame(jtoutput->m_audioFrame);
             if (ret) {
@@ -376,7 +394,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
     jtoutput->m_audioClock.setClock(audioPts);
     int64_t _pts = (int64_t)audioPts;
     if (jtoutput->m_lastAudioPts != _pts) {
-        emit jtoutput->AVPtsChanged(_pts);
+        emit jtoutput->ptsChanged(_pts);
         jtoutput->m_lastAudioPts = _pts;
     }
 }

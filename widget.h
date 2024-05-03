@@ -16,14 +16,23 @@ public:
     Widget(QWidget *parent = nullptr);
     ~Widget();
     void init();
+    void setWidgetsState(PlayerState playerState);
 
 private slots:
+    void onOpenFileBtnClicked();
     void onPauseBtnClicked();
     void updatePauseBtnStyle(PlayerState playerState);
     void onStopBtnClicked();
     void totalTimeChanged(int64_t duration);
-    void curTimeChanged(int64_t curPts);
+    void sliderTimeChanged(int64_t curPts);
     void muteChanged(bool checked);
+    void volumeSliderMoved();
+    void setStep(bool checked);
+    void onStepBtnClicked();
+    void onForwardBtnClicked();
+    void onBackwardBtnClicked();
+    void ptsSliderMoved();
+    void ptsSliderReleased();
 
 signals:
     void volumeChanged(int volume);
@@ -31,7 +40,8 @@ signals:
 
 private:
     Ui::Widget *ui;
-    int m_lastVolume;
+    int64_t m_duration;  // 当前播放视频的播放时长/s
+    int m_lastVolume;    // 静音前的音量值
 
 };
 #endif // WIDGET_H

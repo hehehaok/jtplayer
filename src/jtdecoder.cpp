@@ -3,7 +3,7 @@
 #include "jtplayer.h"
 #include <thread>
 
-JTDecoder::JTDecoder() : m_maxFrameQueueSize(16)
+JTDecoder::JTDecoder() : m_maxFrameQueueSize(16), m_sleepTime(10)
 {
     m_audioFrameQueue.size = 0;
     m_videoFrameQueue.size = 0;
@@ -195,12 +195,14 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
             break;
         }
         if (m_pause) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
+            if(!JTPlayer::get()->m_step) {
+                continue;  // 只有当m_pause为真且m_step为假时才是真正的暂停
+            }
         }
         if (m_audioFrameQueue.size >= m_maxFrameQueueSize) {
             qDebug() << "audio frame queue size is" << m_audioFrameQueue.size << ", audio decode useless loop!\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
             continue;
         }
         bool ret = m_jtDemux->getPacket(&m_jtDemux->m_audioPacketQueue, packet, &m_audioPktDecoder);
@@ -232,7 +234,7 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
         }
         else {
             qDebug() << "get audio packet failed!\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
         }
     }
     av_packet_free(&packet);
@@ -250,12 +252,14 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
             break;
         }
         if (m_pause) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
+            if(!JTPlayer::get()->m_step) {
+                continue;  // 只有当m_pause为真且m_step为假时才是真正的暂停
+            }
         }
         if (m_videoFrameQueue.size >= m_maxFrameQueueSize) {
             qDebug() << "video frame queue size is" << m_videoFrameQueue.size << ", video decode useless loop!\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
             continue;
         }
         bool ret = m_jtDemux->getPacket(&m_jtDemux->m_videoPacketQueue, packet, &m_videoPktDecoder);
@@ -282,7 +286,7 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
         }
         else {
             qDebug() << "get video packet failed!\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
         }
     }
     av_packet_free(&packet);

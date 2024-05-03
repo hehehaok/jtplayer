@@ -28,7 +28,7 @@ public:
 
 signals:
     void frameChanged(std::shared_ptr<YUV420Frame> frame);
-    void AVPtsChanged(unsigned int pts);
+    void ptsChanged(unsigned int pts);
 
 public:
     // 视频相关
@@ -74,12 +74,14 @@ public:
     // 操作相关
     bool m_exit;                         // 退出
     bool m_pause;                        // 暂停
+    bool m_step;                         // 逐帧
     float m_speed;                       // 播放速度
     int m_volume;                        // 音量
 
 
     // 其他
     char m_errorBuffer[1024];            // 错误信息
+    const int m_sleepTime;               // 工作线程最多睡眠时间
 
 };
 

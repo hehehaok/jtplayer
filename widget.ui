@@ -60,14 +60,33 @@
      <property name="title">
       <string/>
      </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="16,2,2,4">
+     <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,8,0,1,2,4">
       <item>
-       <widget class="QSlider" name="ptsSlider">
+       <widget class="QLabel" name="curTime">
+        <property name="text">
+         <string>00:00:00</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="PtsSlider" name="ptsSlider">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
         <property name="maximumSize">
          <size>
           <width>16777215</width>
           <height>20</height>
          </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true"/>
+        </property>
+        <property name="maximum">
+         <number>100</number>
         </property>
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -75,13 +94,23 @@
        </widget>
       </item>
       <item>
-       <spacer name="horizontalSpacer_4">
+       <widget class="QLabel" name="totalTime">
+        <property name="text">
+         <string>00:00:00</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_5">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
         </property>
+        <property name="sizeType">
+         <enum>QSizePolicy::Preferred</enum>
+        </property>
         <property name="sizeHint" stdset="0">
          <size>
-          <width>40</width>
+          <width>20</width>
           <height>20</height>
          </size>
         </property>
@@ -113,12 +142,15 @@
        </widget>
       </item>
       <item>
-       <widget class="QSlider" name="volumeSlider">
+       <widget class="PtsSlider" name="volumeSlider">
         <property name="maximumSize">
          <size>
           <width>150</width>
           <height>20</height>
          </size>
+        </property>
+        <property name="maximum">
+         <number>100</number>
         </property>
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -149,14 +181,26 @@
      <property name="title">
       <string/>
      </property>
-     <layout class="QHBoxLayout" name="horizontalLayout" stretch="6,1,2,2,2,2,1,0,0,0,1,2">
+     <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,0,1,2,2,2,2,1,0,0,1,2">
       <item>
-       <widget class="QComboBox" name="fileSelect">
+       <widget class="QLineEdit" name="fileName"/>
+      </item>
+      <item>
+       <widget class="QPushButton" name="openFileBtn">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
         <property name="maximumSize">
          <size>
-          <width>160</width>
+          <width>70</width>
           <height>20</height>
          </size>
+        </property>
+        <property name="text">
+         <string>open</string>
         </property>
        </widget>
       </item>
@@ -263,23 +307,28 @@
        </spacer>
       </item>
       <item>
-       <widget class="QLabel" name="curTime">
+       <widget class="QRadioButton" name="isStepBtn">
         <property name="text">
-         <string>00:00:00</string>
+         <string/>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QLabel" name="timeSep">
-        <property name="text">
-         <string>/</string>
+       <widget class="QPushButton" name="stepBtn">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
         </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="totalTime">
+        <property name="maximumSize">
+         <size>
+          <width>70</width>
+          <height>20</height>
+         </size>
+        </property>
         <property name="text">
-         <string>00:00:00</string>
+         <string>step</string>
         </property>
        </widget>
       </item>
@@ -317,6 +366,11 @@
    <extends>QOpenGLWidget</extends>
    <header location="global">openglwidget.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PtsSlider</class>
+   <extends>QSlider</extends>
+   <header location="global">ptsslider.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

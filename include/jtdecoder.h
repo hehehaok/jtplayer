@@ -16,6 +16,7 @@ public:
     bool m_pause;                        // 暂停解码
     char m_errorBuffer[1024];            // 错误信息
     const int m_maxFrameQueueSize;       // 帧队列最大长度
+    const int m_sleepTime;               // 线程工作最多睡眠时间
 
     // 视频相关
     FrameQueue m_videoFrameQueue;        // 视频帧队列

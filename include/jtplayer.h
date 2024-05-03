@@ -46,6 +46,7 @@ public:
     bool m_exit;                             // 退出播放
     bool m_pause;                            // 暂停播放
     bool m_step;                             // 逐帧播放
+    bool m_end;                              // 播放到文件尾
     int64_t m_duration;                      // 文件总时间/秒
     double m_curTime;                        // 当前播放时间
     float m_speed;                           // 当前播放速度
@@ -56,6 +57,9 @@ public:
     void play();
     void close();
     void pause(bool isPause);
+    void step(bool isStep);
+    void seekTo(double seekTarget);
+    void endPause();
     PlayerState getPlayerState();
 
 private:
@@ -72,6 +76,7 @@ signals:
     void frameChanged(std::shared_ptr<YUV420Frame> frame);
     void durationChanged(int64_t duration);
     void playerStateChanged(PlayerState playerState);
+    void playerAtFileEnd();
 
 public slots:
     void setPlayerState(PlayerState playerState);

@@ -10,7 +10,7 @@ JTPlayer::JTPlayer(QObject *parent) : QObject(parent),
     m_jtDecoder(std::make_shared<JTDecoder>()),
     m_jtOutput(std::make_shared<JTOutput>()),
     m_playerState(PlayerState::STOPED),
-    m_exit(false), m_pause(false),
+    m_exit(false), m_pause(false), m_step(false), m_end(false),
     m_duration(0), m_curTime(0.00), m_speed(0.00)
 {
 
@@ -68,6 +68,11 @@ void JTPlayer::play()
 
 bool JTPlayer::playerInit()
 {
+    m_exit = false;
+    m_pause = false;
+    m_step = false;
+    m_end = false;
+
     m_errorBuffer[1023] = '\0';
     m_avFmtCtx = NULL;          // 输入文件格式上下文
 
@@ -257,15 +262,29 @@ void JTPlayer::pause(bool isPause)
     m_jtDemux->m_pause = isPause;
     m_jtDecoder->m_pause = isPause;
     m_jtOutput->m_pause = isPause;
-    if (isPause) {
-        SDL_PauseAudio(1);
+    if (m_pause) {
         emit playerStateChanged(PlayerState::PAUSED);
     }
     else {
-        SDL_PauseAudio(0);
         emit playerStateChanged(PlayerState::PLAYING);
     }
 
+}
+
+void JTPlayer::step(bool isStep)
+{
+    m_step = isStep;
+}
+
+void JTPlayer::seekTo(double seekTarget)
+{
+    m_jtDemux->m_seekTarget = seekTarget;
+    m_jtDemux->m_seek = true;
+}
+
+void JTPlayer::endPause()
+{
+    emit playerAtFileEnd();
 }
 
 PlayerState JTPlayer::getPlayerState()

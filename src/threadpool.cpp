@@ -69,7 +69,7 @@ void ThreadPool::releasePool()
     m_initFlag = -1;
     lock.unlock();
     m_cond.notify_all();
-    // 给500ms时间让各线程执行完毕后退出
+    // 给50ms时间让各线程执行完毕后退出
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 

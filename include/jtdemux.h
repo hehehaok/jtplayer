@@ -14,9 +14,13 @@ public:
 public:
     bool m_exit;                     // 退出解复用
     bool m_pause;                    // 暂停解复用
+    bool m_step;                     // 逐帧
+    bool m_seek;                     // 跳转播放
+    double m_seekTarget;             // 跳转位置
     char m_errorBuffer[1024];        // 错误信息
     AVFormatContext* m_avFmtCtx;     // 输入上下文
     const int m_maxPacketQueueSize;  // 包队列最大长度
+    const int m_sleepTime;           // 工作线程中的线程睡眠时间
 
     // 视频相关
     PacketQueue m_audioPacketQueue;  // 音频包队列
