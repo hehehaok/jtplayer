@@ -51,6 +51,8 @@ bool JTOutput::outputInit()
     m_pause = false;
     m_step = false;
     m_speed = 1.0;
+    m_lastSpeed = 1.0;
+    m_speedChanged = false;
     m_frameTimer = 0.00;
     m_clockInitFlag = false;
     m_jtDecoder = JTPlayer::get()->m_jtDecoder;
@@ -143,7 +145,7 @@ void JTOutput::videoCallBack(std::shared_ptr<void> param)
             if (curFrame->serial != lastFrame->serial) {
                 m_frameTimer = AVClock::getCurTimeStamp() / 1000000.0; // 新的帧和包队列相同且和前一帧不相同，说明是新序列号的第一帧
             }
-            duration = vpDuration(curFrame, lastFrame); // 理论播放时长
+            duration = vpDuration(curFrame, lastFrame, m_speed); // 理论播放时长
             delay = computeTargetDelay(duration);       // 实际应该的播放时长
             time = AVClock::getCurTimeStamp() / 1000000.0;
             if (time < m_frameTimer + delay) { // 说明此时这一帧还没到播完的时候，需要继续播
@@ -215,16 +217,16 @@ void JTOutput::initAVClock()
     m_clockInitFlag = true;
 }
 
-double JTOutput::vpDuration(MyFrame *curFrame, MyFrame *lastFrame)
+double JTOutput::vpDuration(MyFrame *curFrame, MyFrame *lastFrame, float speed)
 {
     if (curFrame->serial == lastFrame->serial) {
         double duration = curFrame->pts - lastFrame->pts;
         // 如果时间差是NAN或大于等于AV_NOSYNC_THRESHOLD,则返回上一帧的持续时间
         if (isnan(duration) || duration > AV_NOSYNC_THRESHOLD) {
-            return lastFrame->duration;
+            return lastFrame->duration / speed;
         }
         else {
-            return duration;
+            return duration / speed;
         }
     }
     return 0.0;
@@ -283,7 +285,7 @@ bool JTOutput::initAudio()
 
     SDL_AudioSpec wantedSpec;
     wantedSpec.channels = m_audioCodecPar->channels;
-    wantedSpec.freq = m_audioCodecPar->sample_rate * m_speed;
+    wantedSpec.freq = m_audioCodecPar->sample_rate;
     wantedSpec.format = AUDIO_S16SYS;
     wantedSpec.silence = 0; // 表示静音值，当设备暂停时会往设备中写入静音值
     wantedSpec.callback = audioCallBack;
@@ -298,17 +300,41 @@ bool JTOutput::initAudio()
     }
 
     m_dstSampleFmt = AV_SAMPLE_FMT_S16;
-    if(av_sample_fmt_is_planar(m_dstSampleFmt)) {
-        qDebug() << "planar!The data size is" << av_get_bytes_per_sample(m_dstSampleFmt);
-    }
-    else {
-        qDebug() << "packet!The data size is" << av_get_bytes_per_sample(m_dstSampleFmt);
-    }
     m_dstChannels = actualSpec.channels;
     m_dstFreq = actualSpec.freq;
+    m_initDstFreq = actualSpec.freq;
     m_dstChannelLayout = av_get_default_channel_layout(actualSpec.channels);
+
     m_audioFrame = av_frame_alloc();
     return true;
+}
+
+bool JTOutput::initSwrCtx(int inChannels, int inSampleRate, AVSampleFormat inFmt, int outChannels, int outSampleRate, AVSampleFormat outFmt)
+{
+    if (inChannels == outChannels && inSampleRate == outSampleRate && inFmt == outFmt) {
+        return true;
+    }
+
+    m_swrCtx = swr_alloc_set_opts(NULL, av_get_default_channel_layout(outChannels), outFmt, outSampleRate,
+                                        av_get_default_channel_layout(inChannels), inFmt, inSampleRate, 0, NULL);
+
+   if (!m_swrCtx) {
+       qDebug() << "swr_alloc_set_opts failed!\n";
+       return false;
+   }
+
+   int ret = swr_init(m_swrCtx);
+   if (ret != 0) {
+       qDebug() << "swr_init failed!\n";
+       return false;
+   }
+
+   m_srcChannels = inChannels;
+   m_srcFreq = inSampleRate;
+   m_srcSampleFmt = inFmt;
+   m_srcChannelLayout = av_get_default_channel_layout(inChannels);
+
+   return true;
 }
 
 void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
@@ -316,6 +342,13 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
     memset(stream, 0, len);
     JTOutput* jtoutput = (JTOutput*) userData;
     double audioPts = 0.00;
+    if (jtoutput->m_speedChanged) {
+        jtoutput->m_dstFreq = jtoutput->m_initDstFreq / jtoutput->m_speed;
+        // 更新采样频率后需要对重采样进行重新设置
+        jtoutput->initSwrCtx(jtoutput->m_srcChannels, jtoutput->m_srcFreq, jtoutput->m_srcSampleFmt,
+                             jtoutput->m_dstChannels, jtoutput->m_dstFreq, jtoutput->m_dstSampleFmt);
+        jtoutput->m_speedChanged = false;
+    }
     while (len > 0) {
         if (jtoutput->m_exit) {
             return;
@@ -330,17 +363,9 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
             bool ret = jtoutput->m_jtDecoder->getAudioFrame(jtoutput->m_audioFrame);
             if (ret) {
                 jtoutput->m_audioBufferIndex = 0;
-                if ((jtoutput->m_dstSampleFmt != jtoutput->m_audioFrame->format ||
-                     jtoutput->m_dstChannelLayout != jtoutput->m_audioFrame->channel_layout ||
-                     jtoutput->m_dstFreq != jtoutput->m_audioFrame->sample_rate) &&
-                     jtoutput->m_swrCtx == NULL) {
-                    jtoutput->m_swrCtx = swr_alloc_set_opts(NULL, jtoutput->m_dstChannelLayout, jtoutput->m_dstSampleFmt, jtoutput->m_dstFreq,
-                                                            jtoutput->m_audioFrame->channel_layout, (enum AVSampleFormat)jtoutput->m_audioFrame->format,
-                                                            jtoutput->m_audioFrame->sample_rate, 0, NULL);
-                    if (jtoutput->m_swrCtx == NULL || swr_init(jtoutput->m_swrCtx) < 0) {
-                        qDebug() << "swr context init failed!\n";
-                        return;
-                    }
+                if (jtoutput->m_swrCtx == NULL) {
+                    jtoutput->initSwrCtx(jtoutput->m_audioFrame->channels, jtoutput->m_audioFrame->sample_rate, (enum AVSampleFormat)jtoutput->m_audioFrame->format,
+                                         jtoutput->m_dstChannels, jtoutput->m_dstFreq, jtoutput->m_dstSampleFmt);
                 }
                 if (jtoutput->m_swrCtx) { // 先进行数据格式转换
                     const uint8_t **in = (const uint8_t **)jtoutput->m_audioFrame->extended_data;
@@ -392,7 +417,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
         // 需要注意一下 len的单位是字节,len1的单位也是字节,m_audioBufferIndex的单位也是字节
     }
     jtoutput->m_audioClock.setClock(audioPts);
-    int64_t _pts = (int64_t)audioPts;
+    int64_t _pts = (int64_t)(audioPts + 0.5);
     if (jtoutput->m_lastAudioPts != _pts) {
         emit jtoutput->ptsChanged(_pts);
         jtoutput->m_lastAudioPts = _pts;

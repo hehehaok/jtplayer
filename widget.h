@@ -33,6 +33,7 @@ private slots:
     void onBackwardBtnClicked();
     void ptsSliderMoved();
     void ptsSliderReleased();
+    void speedChanged(const QString& curText);
 
 signals:
     void volumeChanged(int volume);

@@ -60,6 +60,7 @@ public:
     void step(bool isStep);
     void seekTo(double seekTarget);
     void endPause();
+    void setSpeed(float speed);
     PlayerState getPlayerState();
 
 private:

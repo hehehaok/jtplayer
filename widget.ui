@@ -60,7 +60,7 @@
      <property name="title">
       <string/>
      </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,8,0,1,2,4">
+     <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,8,0,1,0,4">
       <item>
        <widget class="QLabel" name="curTime">
         <property name="text">
@@ -117,27 +117,9 @@
        </spacer>
       </item>
       <item>
-       <widget class="QPushButton" name="muteBtn">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>40</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
+       <widget class="QRadioButton" name="muteBtn">
         <property name="text">
-         <string>mute</string>
+         <string/>
         </property>
        </widget>
       </item>

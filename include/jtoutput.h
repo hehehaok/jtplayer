@@ -20,15 +20,16 @@ public:
     void videoCallBack(std::shared_ptr<void> param);
     void displayImage(AVFrame* frame);
     void initAVClock();
-    double vpDuration(MyFrame* curFrame, MyFrame* lastFrame);
+    double vpDuration(MyFrame* curFrame, MyFrame* lastFrame, float speed);
     double computeTargetDelay(double delay);
 
     bool initAudio();
+    bool initSwrCtx(int inChannels, int inSampleRate, AVSampleFormat inFmt, int outChannels, int outSampleRate, AVSampleFormat outFmt);
     static void audioCallBack(void *userData, uint8_t *stream, int len);
 
 signals:
     void frameChanged(std::shared_ptr<YUV420Frame> frame);
-    void ptsChanged(unsigned int pts);
+    void ptsChanged(int64_t pts);
 
 public:
     // 视频相关
@@ -53,12 +54,21 @@ public:
     uint32_t m_audioBufferSize;          // 音频缓冲区大小/字节
     uint32_t m_audioBufferIndex;         // 音频缓存读索引/字节
     int64_t m_lastAudioPts;              // 上一帧的音频pts，主要是用于更新当前的视频时间
+
     enum AVSampleFormat m_dstSampleFmt;  // 目标音频格式
     int m_dstChannels;                   // 目标通道数
     int m_dstFreq;                       // 目标采样率
     int m_dstChannelLayout;              // 目标通道布局
+    int m_initDstFreq;                   // 原始的目标采样率，因为变速后目标采样率会发生变化，因此需要先把初始值记录一下
 
     AVFrame* m_audioFrame;               // 音频帧实例，用于接收来自帧队列的帧
+
+    enum AVSampleFormat m_srcSampleFmt;  // 源音频格式，源即对应接收的帧的，即m_audioFrame
+    int m_srcChannels;                   // 源标通道数
+    int m_srcFreq;                       // 源采样率
+    int m_srcChannelLayout;              // 源通道布局
+
+
 
 
 
@@ -76,6 +86,8 @@ public:
     bool m_pause;                        // 暂停
     bool m_step;                         // 逐帧
     float m_speed;                       // 播放速度
+    float m_lastSpeed;                   // 上一次的播放速度
+    bool m_speedChanged;                 // 播放速度发生改变
     int m_volume;                        // 音量
 
 

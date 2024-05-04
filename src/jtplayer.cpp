@@ -86,7 +86,6 @@ bool JTPlayer::playerInit()
     m_audioCodec = NULL;              // 视频解码器
     m_audioStreamIndex = -1;          // 视频流索引
 
-    avformat_network_init(); // 初始化网络
     return true;
 }
 
@@ -285,6 +284,15 @@ void JTPlayer::seekTo(double seekTarget)
 void JTPlayer::endPause()
 {
     emit playerAtFileEnd();
+}
+
+void JTPlayer::setSpeed(float speed)
+{
+    if (m_jtOutput->m_speed != speed) {
+        m_jtOutput->m_lastSpeed = m_jtOutput->m_speed;
+        m_jtOutput->m_speed = speed;
+        m_jtOutput->m_speedChanged = true;
+    }
 }
 
 PlayerState JTPlayer::getPlayerState()
