@@ -19,9 +19,6 @@ public:
     bool initVideo();
     void videoCallBack(std::shared_ptr<void> param);
     void displayImage(AVFrame* frame);
-    void initAVClock();
-    double vpDuration(MyFrame* curFrame, MyFrame* lastFrame, float speed);
-    double computeTargetDelay(double delay);
 
     bool initAudio();
     bool initSwrCtx(int inChannels, int inSampleRate, AVSampleFormat inFmt, int outChannels, int outSampleRate, AVSampleFormat outFmt);
@@ -76,10 +73,7 @@ public:
     std::shared_ptr<JTDecoder> m_jtDecoder;  // 解码模块
 
     // 时间相关
-    bool m_clockInitFlag;                // 时钟是否初始化
-    AVClock m_videoClock;                // 视频流对应时钟
     AVClock m_audioClock;                // 音频流对应时钟
-    double m_frameTimer;                 // 当前帧刚开始播放时的时间戳
 
     // 操作相关
     bool m_exit;                         // 退出

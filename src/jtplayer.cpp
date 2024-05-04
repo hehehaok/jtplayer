@@ -261,18 +261,19 @@ void JTPlayer::pause(bool isPause)
     m_jtDemux->m_pause = isPause;
     m_jtDecoder->m_pause = isPause;
     m_jtOutput->m_pause = isPause;
+    m_jtOutput->m_audioClock.pauseClock(isPause);
     if (m_pause) {
         emit playerStateChanged(PlayerState::PAUSED);
     }
     else {
         emit playerStateChanged(PlayerState::PLAYING);
     }
-
 }
 
 void JTPlayer::step(bool isStep)
 {
     m_step = isStep;
+    m_jtOutput->m_audioClock.pauseClock(false);
 }
 
 void JTPlayer::seekTo(double seekTarget)

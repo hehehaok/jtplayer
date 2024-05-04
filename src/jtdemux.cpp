@@ -1,5 +1,6 @@
 #include "jtdemux.h"
 #include "jtplayer.h"
+#include "jtoutput.h"
 #include <thread>
 
 JTDemux::JTDemux() : m_maxPacketQueueSize(30), m_sleepTime(10)
@@ -53,6 +54,7 @@ void JTDemux::demux(std::shared_ptr<void> param)
                 // 这样就可以保证包队列序列号更新后解码线程解码压入帧队列的帧序列号是最新的，但是帧队列中现有的帧可能
                 // 序列号不是最新的，这个就会交给播放线程处理，当播放线程发现要播放的帧和包队列序号对不上时，就会直接舍弃这一帧
                 // 从而完成从解复用到解码再到播放整个流程的跳转
+                JTPlayer::get()->m_jtOutput->m_audioClock.seekClock(m_seekTarget);
             }
             m_seek = false;
         }
