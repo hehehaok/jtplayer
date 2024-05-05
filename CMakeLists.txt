@@ -43,9 +43,11 @@ endif()
 
 set(INCLUDEPATH ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/ffmpeg/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/sdl/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/sonic/include
                 ${CMAKE_CURRENT_SOURCE_DIR}/include)
 set(LINKPATH ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/ffmpeg/lib
-             ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/sdl/lib/x64)
+             ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/sdl/lib/x64
+             ${CMAKE_CURRENT_SOURCE_DIR}/thirdParty/sonic/lib)
 set(FFMPEGDLL avcodec-58.dll
               avdevice-58.dll
               avfilter-7.dll
@@ -55,10 +57,12 @@ set(FFMPEGDLL avcodec-58.dll
               swresample-3.dll
               swscale-5.dll)
 set(SDLDLL SDL2.dll)
+set(SONICDLL libsonic.dll)
 
 target_include_directories(jtPlayer PRIVATE ${INCLUDEPATH})
 target_link_directories(jtPlayer PRIVATE ${LINKPATH})
 target_link_libraries(jtPlayer PRIVATE Qt5::Widgets)
 target_link_libraries(jtPlayer PRIVATE ${FFMPEGDLL})
 target_link_libraries(jtPlayer PRIVATE ${SDLDLL})
+target_link_libraries(jtPlayer PRIVATE ${SONICDLL})
 #target_compile_definitions(jtPlayer PRIVATE QT_NO_DEBUG_OUTPUT)
