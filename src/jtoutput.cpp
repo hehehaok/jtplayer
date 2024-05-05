@@ -91,6 +91,13 @@ void JTOutput::exit()
     if (m_audioBuffer != NULL) {
         av_freep(&m_audioBuffer);
     }
+    if (m_sonicBuffer != NULL) {
+        av_freep(&m_sonicBuffer);
+    }
+    if (m_speedConverter != NULL) {
+        sonicDestroyStream(m_speedConverter);
+        m_speedConverter = NULL;
+    }
     qDebug() << "output exit!\n";
 }
 
@@ -347,12 +354,9 @@ bool JTOutput::isNormalSpeed()
 
 bool JTOutput::audioSpeedConvert()
 {
-    if (m_speedConverter != NULL) {
-        sonicDestroyStream(m_speedConverter);
+    if (m_speedConverter == NULL) {
+        m_speedConverter = sonicCreateStream(m_dstFreq, m_dstChannels);
     }
-
-    m_speedConverter = sonicCreateStream(m_dstFreq, m_dstChannels);
-
     sonicSetSpeed(m_speedConverter, m_speed);
 
     int audioBufferSamples = m_audioBufferSize / (m_dstChannels * av_get_bytes_per_sample(m_dstSampleFmt));
@@ -363,18 +367,24 @@ bool JTOutput::audioSpeedConvert()
         return false;
     }
 
-    int sonicNbSamples = sonicSamplesAvailable(m_speedConverter);  // 注意这里是一个通道的采样点数量
-    int sonicBufferSize = sonicNbSamples * av_get_bytes_per_sample(m_dstSampleFmt) * m_dstChannels;
+    int estSonicNbSamples = 2 * audioBufferSamples / m_speed;
+    uint32_t estSonicBufferSize = estSonicNbSamples * m_dstChannels * av_get_bytes_per_sample(m_dstSampleFmt);
+    av_fast_malloc(&m_audioBuffer, &m_audioBufferSize, estSonicBufferSize);
+    int actualSonicNbSamples = sonicReadShortFromStream(m_speedConverter, (short*)m_audioBuffer, estSonicNbSamples);
+    uint32_t actualSonicBufferSize = actualSonicNbSamples * m_dstChannels * av_get_bytes_per_sample(m_dstSampleFmt);
+    m_audioBufferSize = actualSonicBufferSize;
 
-//    av_fast_malloc(&m_sonicBuffer, &m_sonicBufferSize, sonicBufferSize);
+//    if (m_sonicBufferSize < estSonicBufferSize) {
+//        m_sonicBuffer = (short*)av_realloc(m_sonicBuffer, estSonicBufferSize);
+//        m_sonicBufferSize = estSonicBufferSize;
+//    }
 
-//    sonicReadShortFromStream(m_speedConverter, (short*)m_sonicBuffer, sonicNbSamples);
-//    m_sonicBufferSize = sonicBufferSize;
+//    int actualSonicNbSamples = sonicReadShortFromStream(m_speedConverter, m_sonicBuffer, estSonicNbSamples);
+//    uint32_t actualSonicBufferSize = actualSonicNbSamples * m_dstChannels * av_get_bytes_per_sample(m_dstSampleFmt);
 
-    av_fast_malloc(&m_audioBuffer, &m_audioBufferSize, sonicBufferSize);
-
-    sonicReadShortFromStream(m_speedConverter, (short*)m_audioBuffer, sonicNbSamples);
-    m_audioBufferSize = sonicBufferSize;
+//    av_freep(&m_audioBuffer);
+//    m_audioBuffer = (uint8_t*)m_sonicBuffer;
+//    m_audioBufferSize = actualSonicBufferSize;
     return true;
 }
 
@@ -382,7 +392,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
 {
     memset(stream, 0, len);
     JTOutput* jtoutput = (JTOutput*) userData;
-    double audioPts = 0.00;
+    double audioPts = -1.0;
     while (len > 0) {
         if (jtoutput->m_exit) {
             return;
@@ -443,7 +453,7 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
             }
             // 如果需要变速则需要对该帧数据进行进一步的数据转换
             if (jtoutput->m_speedChanged) {
-                jtoutput->m_dstFreq = jtoutput->m_initDstFreq / jtoutput->m_speed;
+                qDebug() << "speed changed:" << jtoutput->m_speed << "========================\n";
                 jtoutput->m_speedChanged = false;
             }
             if (!jtoutput->isNormalSpeed()) {
@@ -458,11 +468,13 @@ void JTOutput::audioCallBack(void *userData, uint8_t *stream, int len)
         stream += len1;
         // 需要注意一下 len的单位是字节,len1的单位也是字节,m_audioBufferIndex的单位也是字节
     }
-    jtoutput->m_audioClock.setClock(audioPts);
-    int64_t _pts = (int64_t)(audioPts + 0.5);
-    if (jtoutput->m_lastAudioPts != _pts) {
-        emit jtoutput->ptsChanged(_pts);
-        jtoutput->m_lastAudioPts = _pts;
+    if (audioPts >= 0) {
+        jtoutput->m_audioClock.setClock(audioPts);
+        int64_t _pts = (int64_t)(audioPts + 0.5);
+        if (jtoutput->m_lastAudioPts != _pts) {
+            emit jtoutput->ptsChanged(_pts);
+            jtoutput->m_lastAudioPts = _pts;
+        }
     }
 }
 

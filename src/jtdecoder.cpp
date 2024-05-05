@@ -3,6 +3,8 @@
 #include "jtplayer.h"
 #include <thread>
 
+#define CAL_VIDEODECODE_TIME
+
 JTDecoder::JTDecoder() : m_maxFrameQueueSize(16), m_sleepTime(10)
 {
     m_audioFrameQueue.size = 0;
@@ -264,6 +266,9 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
         }
         bool ret = m_jtDemux->getPacket(&m_jtDemux->m_videoPacketQueue, packet, &m_videoPktDecoder);
         if (ret) {
+            #ifdef CAL_VIDEODECODE_TIME
+            auto start = std::chrono::system_clock::now();
+            #endif
             int err = avcodec_send_packet(m_videoPktDecoder.codecCtx, packet);
             if (err < 0 || err == AVERROR(EAGAIN) || err == AVERROR_EOF) {
                 av_strerror(err, m_errorBuffer, sizeof(m_errorBuffer));
@@ -281,6 +286,12 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
                 continue;
             }
             else {
+                #ifdef CAL_VIDEODECODE_TIME
+                auto end = std::chrono::system_clock::now();
+                auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+                qDebug() << "decode time is" << time << "==================================\n";
+                #endif
+                qDebug() << "push a video frame!video frame size is" << m_videoFrameQueue.size << "\n";
                 pushVideoFrame(frame);
             }
         }

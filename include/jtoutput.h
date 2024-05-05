@@ -94,7 +94,7 @@ public:
     sonicStream m_speedConverter;        // 变速播放的数据转换器
     short* m_sonicBuffer;                // 存放变速数据的缓冲区
     uint32_t m_sonicBufferSize;          // 对应缓冲区大小
-    uint32_t m_sonicBufferIndex;           // 缓冲区写指针
+    uint32_t m_sonicBufferIndex;         // 缓冲区写指针
     int m_volume;                        // 音量
 
 
