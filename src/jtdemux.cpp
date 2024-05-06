@@ -61,7 +61,12 @@ void JTDemux::demux(std::shared_ptr<void> param)
         if (ret != 0) {
             if (ret == AVERROR_EOF) {
                 JTPlayer::get()->m_end = true;
-                qDebug() << "file end!";
+                if (m_videoStreamIndex > 0) {
+                    pushPacket(&m_videoPacketQueue, nullptr);
+                }
+                if (m_audioStreamIndex > 0) {
+                    pushPacket(&m_audioPacketQueue, nullptr);
+                }
             }
             av_strerror(ret, m_errorBuffer, sizeof(m_errorBuffer));
             qDebug() << "demux packet failed:" << m_errorBuffer << "\n";
@@ -81,7 +86,7 @@ void JTDemux::demux(std::shared_ptr<void> param)
         }
     }
     av_packet_free(&avpkt);
-    qDebug() << "demux exit!\n";
+    qDebug() << "demux thread exit!\n";
 }
 
 void JTDemux::demuxInit()

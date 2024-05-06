@@ -42,7 +42,7 @@ public:
     void pushVideoFrame(AVFrame *frame);     // 写入视频帧
     void frameQueueFlush(FrameQueue *queue); // 清空帧队列
     int getRemainingVideoFrame();            // 查看剩余视频帧
-    MyFrame* peekLastVideoFrame();           // 查看上一视频帧
+    MyFrame* peekLastVideoFrame();           // 查看上一视频帧(对应当前正在播放的那一帧)
     MyFrame* peekCurVideoFrame();            // 查看当前视频帧
     MyFrame* peekNextVideoFrame();           // 查看下一视频帧
     void setNextVideoFrame();                // 将视频帧队列读索引后移一位

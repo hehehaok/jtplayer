@@ -241,7 +241,7 @@ void JTDecoder::audioDecoder(std::shared_ptr<void> param)
     }
     av_packet_free(&packet);
     av_frame_free(&frame);
-    qDebug() << "audio decode exit!\n";
+    qDebug() << "audio decode thread exit!\n";
 }
 
 void JTDecoder::videoDecoder(std::shared_ptr<void> param)
@@ -302,7 +302,7 @@ void JTDecoder::videoDecoder(std::shared_ptr<void> param)
     }
     av_packet_free(&packet);
     av_frame_free(&frame);
-    qDebug() << "video decode exit!\n";
+    qDebug() << "video decode thread exit!\n";
 }
 
 void JTDecoder::exit()

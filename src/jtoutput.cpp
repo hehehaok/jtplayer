@@ -180,7 +180,7 @@ void JTOutput::videoCallBack(std::shared_ptr<void> param)
             m_jtDecoder->setNextVideoFrame();
         }
         else {
-            if (JTPlayer::get()->m_end) {
+            if (JTPlayer::get()->m_end) { // 需要改进，这部分是十分不合理的，因为哪怕解复用结束帧队列没帧也不一定代表着结束
                 JTPlayer::get()->endPause();
             }
             qDebug() << "remaining video frame is 0!\n";
@@ -259,16 +259,20 @@ double JTOutput::computeTargetDelay(double delay)
         // diff为正值，视频比音频快，减慢
         else if (diff >= sync && delay > AV_SYNC_FRAMEDUP_THRESHOLD)
         {
-            // 理论播放时间为delay，但是此时视频已经快于音频了，因此实际的播放时间应该要等于理论播放时间加上已经快的时间差
+            // 理论播放时间为delay，但是此时视频已经快于音频了，理论播放时间超过了0.1秒
+            // 因此实际的播放时间应该要等于理论播放时间加上已经快的时间差
             // 相当于理论播放时间变长了
+            // 这个逻辑需要delay大于0.1，这种情况一般是帧率小于10的视频才会出现，所以一般不会走这个逻辑
             delay = diff + delay;
         }
         // 视频比音频快，减慢
         else if (diff >= sync)
         {
-            // 不同步时间小于阈值，且当前时间戳与视频当前显示帧时间戳差值小于阈值，则将delay设置为当前时间戳与视频当前显示帧时间戳差值加上delay的2倍
+            // 不同步时间小于阈值，且理论播放时间小于0.1秒，说明没有快那么多
+            // 则将delay设置为当前时间戳与视频当前显示帧时间戳差值加上delay的2倍
             delay = 2 * delay;
         }
+        // 当diff在-sync和sync之间时，即认为当前是同步的，实际播放时间就等于理论播放时间
     }
     return delay;
 }

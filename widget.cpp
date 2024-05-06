@@ -101,7 +101,8 @@ void Widget::setWidgetsState(PlayerState playerState)
 
 void Widget::onOpenFileBtnClicked()
 {
-    QString filePath = QFileDialog::getOpenFileName(this, "open file", "E:\\Program Files (x86)\\game\\reLive\\VALORANT\\");
+//    QString filePath = QFileDialog::getOpenFileName(this, "open file", "E:\\Program Files (x86)\\game\\reLive\\VALORANT\\");
+    QString filePath = QFileDialog::getOpenFileName(this, "open file", "..\\");
     if(filePath.isEmpty())
      {
          return;

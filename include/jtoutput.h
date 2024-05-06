@@ -82,7 +82,7 @@ public:
     bool m_clockInitFlag;                // 时钟是否初始化
     AVClock m_videoClock;                // 视频流对应时钟
     AVClock m_audioClock;                // 音频流对应时钟
-    double m_frameTimer;                 // 当前帧刚开始播放时的时间戳
+    double m_frameTimer;                 // 窗口正在显示的帧刚开始播放时的时间戳
 
     // 操作相关
     bool m_exit;                         // 退出
