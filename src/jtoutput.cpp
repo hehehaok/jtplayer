@@ -180,9 +180,11 @@ void JTOutput::videoCallBack(std::shared_ptr<void> param)
             m_jtDecoder->setNextVideoFrame();
         }
         else {
-            if (JTPlayer::get()->m_end) { // 需要改进，这部分是十分不合理的，因为哪怕解复用结束帧队列没帧也不一定代表着结束
-                JTPlayer::get()->endPause();
-            }
+//            if (JTPlayer::get()->m_end) {
+//                JTPlayer::get()->endPause();
+//            }
+            // 暂时废除这部分逻辑，当帧率较低时很有可能发生解复用到结束了但视频帧获取失败导致视频意外停止的错误逻辑
+            // 还是按照ffplay的，当解复用到结尾时自动循环线程阻塞同时阻塞后续流程
             qDebug() << "remaining video frame is 0!\n";
             std::this_thread::sleep_for(std::chrono::milliseconds(m_sleepTime));
         }

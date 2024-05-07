@@ -36,6 +36,7 @@ public:
     int getPacketQueueSize(PacketQueue* queue);
     bool getPacket(PacketQueue* queue, AVPacket* pkt, PktDecoder* decoder);
     void pushPacket(PacketQueue* queue, AVPacket* pkt);
+    void pushNullPacket(PacketQueue* queue);
     void packetQueueFlush(PacketQueue* queue);
 };
 

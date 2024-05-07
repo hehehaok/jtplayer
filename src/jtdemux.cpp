@@ -62,10 +62,10 @@ void JTDemux::demux(std::shared_ptr<void> param)
             if (ret == AVERROR_EOF) {
                 JTPlayer::get()->m_end = true;
                 if (m_videoStreamIndex > 0) {
-                    pushPacket(&m_videoPacketQueue, nullptr);
+                    pushNullPacket(&m_videoPacketQueue);
                 }
                 if (m_audioStreamIndex > 0) {
-                    pushPacket(&m_audioPacketQueue, nullptr);
+                    pushNullPacket(&m_audioPacketQueue);
                 }
             }
             av_strerror(ret, m_errorBuffer, sizeof(m_errorBuffer));
@@ -168,6 +168,19 @@ void JTDemux::pushPacket(PacketQueue *queue, AVPacket *pkt)
     queue->pktQue[queue->pushIndex].serial = queue->serial;
     queue->pushIndex = (queue->pushIndex + 1) % m_maxPacketQueueSize;
     queue->size++;
+}
+
+void JTDemux::pushNullPacket(PacketQueue *queue)
+{
+    std::unique_lock<std::mutex> lock(queue->mutex);
+    AVPacket packet;
+    AVPacket* pkt = &packet;
+    av_init_packet(pkt);
+    pkt->data = NULL;
+    pkt->size = 0;
+    pkt->stream_index = m_videoStreamIndex;
+    lock.unlock();
+    pushPacket(queue, pkt);
 }
 
 void JTDemux::packetQueueFlush(PacketQueue *queue)
